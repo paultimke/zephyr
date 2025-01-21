@@ -1,0 +1,76 @@
+# MMA7660 3-axis accelerometer
+
+# Copyright (c) Paul Timke <ptimkec@live.com>
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig MMA7660
+    bool "MMA7660 accelerometer driver"
+    default y
+    depends on DT_HAS_NXP_MMA7660_ENABLED
+    select I2C if $(dt_compat_on_bus,$(DT_COMPAT_NXP_MMA7660),i2c)
+    help
+      Enable driver for the MMA7660 accelerometer
+
+if MMA7660
+
+choice
+    prompt "Trigger mode"
+    default MMA7660_TRIGGER_NONE
+
+config MMA7660_TRIGGER_NONE
+    bool "No trigger"
+
+config MMA7660_TRIGGER_GLOBAL_THREAD
+    bool "Use global thread"
+    depends on GPIO
+    depends on $(dt_compat_any_has_prop,$(DT_COMPAT_NXP_MMA7660), int-gpio)
+    select MMA7660_TRIGGER
+
+config MMA7660_TRIGGER_OWN_THREAD
+    bool "Use own thread"
+    select MMA7660_TRIGGER
+
+endchoice
+
+config MMA7660_TRIGGER
+    bool
+
+if MMA7660_TRIGGER
+
+config MMA7660_DRDY
+    bool "Data ready interrupt"
+    help
+      Enable data ready interrupt
+
+config MMA7660_TAP
+    bool "Tap (Pulse) detection interrupt"
+    help
+      Enable tap detection interrupt
+
+menuconfig MMA7660_SHAKE
+    bool "Shake detection interrupt"
+    help
+      Enable shake detection interrupt
+
+if MMA7660_SHAKE
+
+config MMA7660_SHAKE_X
+    bool "Shake detection on the X axis"
+    help
+      Enable shake detection on the X axis
+
+config MMA7660_SHAKE_Y
+    bool "Shake detection on the Y axis"
+    help
+      Enable shake detection on the Y axis
+
+config MMA7660_SHAKE_Z
+    bool "Shake detection on the Z axis"
+    help
+      Enable shake detection on the Z axis
+
+endif # MMA7660_SHAKE
+
+endif # MMA7660_TRIGGER
+
+endif # MMA7660

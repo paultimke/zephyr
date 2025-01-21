@@ -1,0 +1,17 @@
+# Copyright (c) Paul Timke <ptimkec@live.com>
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+    NXP MMA7660 3-Axis Accelerometer. See datasheet at
+    https://www.nxp.com/docs/en/data-sheet/MMA7660FC.pdf
+
+compatible: "nxp,mma7660"
+
+include: [sensor-device.yaml, i2c-device.yaml]
+
+properties:
+  int-gpio:
+    type: phandle-array
+    description: |
+      INT pin
+      TODO

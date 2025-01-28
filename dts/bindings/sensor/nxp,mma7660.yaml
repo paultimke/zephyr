@@ -9,9 +9,3 @@ compatible: "nxp,mma7660"
 
 include: [sensor-device.yaml, i2c-device.yaml]
 
-properties:
-  int-gpio:
-    type: phandle-array
-    description: |
-      INT pin
-      TODO

@@ -5,10 +5,7 @@
  */
 
 #include <zephyr/drivers/sensor.h>
-//#if DT_ANY_INST_ON_BUS_STATUS_OKAY(i2c)
-#if 1
 #include <zephyr/drivers/i2c.h>
-#endif
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 
@@ -31,6 +28,11 @@
 
 #define MMA7660_REG_MODE_MODE_MASK 0x01
 
+#define MMA7660_SR_WAKE_FIELD_OFFSET  0x00
+#define MMA7660_SR_SLEEP_FIELD_OFFSET 0x03
+#define MMA7660_SR_WAKE_ODR_MASK      0x07
+#define MMA7660_SR_SLEEP_ODR_MASK     0x18
+
 /* Interrupt Sources */
 #define MMA7660_INTSRC_NONE        0x00
 #define MMA7660_INTSRC_FB          0x01
@@ -43,6 +45,14 @@
 #define MMA7660_INTSRC_SHZ         0x80
 
 /* Output data rates */
+#define MMA7660_SR_ODR_RATE_120 0x00
+#define MMA7660_SR_ODR_RATE_64  0x01
+#define MMA7660_SR_ODR_RATE_32  0x02
+#define MMA7660_SR_ODR_RATE_16  0x03
+#define MMA7660_SR_ODR_RATE_8   0x04
+#define MMA7660_SR_ODR_RATE_4   0x05
+#define MMA7660_SR_ODR_RATE_2   0x06
+#define MMA7660_SR_ODR_RATE_1   0x07
 
 /* Tap detection slope duration */
 /* Each increment of 1 in the register corresponds to
@@ -58,8 +68,8 @@
 #define MMA7660_PDET_SLOPE_DUR_66_56_MS 0xFF
 
 /* Number of channels */
-#define MMA7660_NUM_ACCEL_CHANNELS 3
 #define MMA7660_MAX_NUM_CHANNELS   3
+#define MMA7660_MAX_NUM_BYTES      (MMA7660_MAX_NUM_CHANNELS)
 
 enum mma7660_power {
         MMA7660_POWER_STANDBY       = 0,
@@ -67,7 +77,7 @@ enum mma7660_power {
 };
 
 enum mma7660_power_mode {
-        MMA7660_PM_RUN              = 0,
+        MMA7660_PM_WAKE             = 0,
         MMA7660_PM_SLEEP,
 };
 
@@ -77,34 +87,17 @@ enum mma7660_channel {
         MMA7660_CHANNEL_ACCEL_Z,
 };
 
-struct mma7660_io_ops {
-        int (*read)(const struct device *dev,
-                    uint8_t reg,
-                    void *data,
-                    size_t length);
-        int (*byte_read)(const struct device *dev,
-                         uint8_t reg,
-                         uint8_t *byte);
-        int (*byte_write)(const struct device *dev,
-                          uint8_t reg,
-                          uint8_t byte);
-        int (*reg_field_update)(const struct device *dev,
-                                uint8_t reg,
-                                uint8_t mask,
-                                uint8_t val);
-};
-
 struct mma7660_config {
-    const struct i2c_dt_spec i2c;
-    const struct mma7660_io_ops *ops;
+	const struct i2c_dt_spec i2c;
 #if CONFIG_MMA7660_TRIGGER
-    struct gpio_dt_spec int_gpio;
+	struct gpio_dt_spec int_gpio;
 #endif
 	enum mma7660_power_mode power_mode;
 };
 
 struct mma7660_data {
-    struct k_sem sem;
+	struct k_sem sem;
+	int16_t raw[MMA7660_MAX_NUM_CHANNELS];
 
 #ifdef CONFIG_MMA7660_TRIGGER
 	const struct device *dev;
@@ -112,17 +105,8 @@ struct mma7660_data {
 	sensor_trigger_handler_t drdy_handler;
 	const struct sensor_trigger *drdy_trig;
 #endif
-
-    int16_t raw[MMA7660_MAX_NUM_CHANNELS];
 };
 
 int mma7660_get_power(const struct device *dev, enum mma7660_power *power);
 int mma7660_set_power(const struct device *dev, enum mma7660_power power);
 
-int mma7660_byte_write(const struct device *dev,
-                    uint8_t reg,
-                    uint8_t byte);
-
-int mma7660_byte_read(const struct device *dev,
-                    uint8_t reg,
-                    uint8_t byte);

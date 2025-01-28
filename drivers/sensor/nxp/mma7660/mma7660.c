@@ -85,27 +85,21 @@ LOG_MODULE_REGISTER(MMA7660, CONFIG_SENSOR_LOG_LEVEL);
  *    values for filters, etc.
  */
 
-#if DT_ANY_INST_ON_BUS_STATUS_OKAY(i2c)
-int mma7660_read_i2c(const struct device *dev,
-		      uint8_t reg,
-		      void *data,
-		      size_t length)
+int mma7660_burst_read(const struct device *dev, uint8_t reg, void *data, size_t length)
 {
 	const struct mma7660_config *config = dev->config;
 
 	return i2c_burst_read_dt(&config->i2c, reg, data, length);
 }
 
-int mma7660_byte_read_i2c(const struct device *dev,
-			   uint8_t reg,
-			   uint8_t *byte)
+int mma7660_byte_read(const struct device *dev, uint8_t reg, uint8_t *byte)
 {
 	const struct mma7660_config *config = dev->config;
 
 	return i2c_reg_read_byte_dt(&config->i2c, reg, byte);
 }
 
-int mma7660_byte_write_i2c(const struct device *dev,
+int mma7660_byte_write(const struct device *dev,
 			    uint8_t reg,
 			    uint8_t byte)
 {
@@ -114,23 +108,12 @@ int mma7660_byte_write_i2c(const struct device *dev,
 	return i2c_reg_write_byte_dt(&config->i2c, reg, byte);
 }
 
-int mma7660_reg_field_update_i2c(const struct device *dev,
-				  uint8_t reg,
-				  uint8_t mask,
-				  uint8_t val)
+int mma7660_reg_field_update(const struct device *dev, uint8_t reg, uint8_t mask, uint8_t val)
 {
 	const struct mma7660_config *config = dev->config;
 
 	return i2c_reg_update_byte_dt(&config->i2c, reg, mask, val);
 }
-
-static const struct mma7660_io_ops mma7660_i2c_ops = {
-	.read = mma7660_read_i2c,
-	.byte_read = mma7660_byte_read_i2c,
-	.byte_write = mma7660_byte_write_i2c,
-	.reg_field_update = mma7660_reg_field_update_i2c,
-};
-#endif
 
 /******
  * TO MODIFY REGISTERS, DEVICE MUST BE SET TO STANDBY MODE FIRST !!!
@@ -138,13 +121,13 @@ static const struct mma7660_io_ops mma7660_i2c_ops = {
 
 int mma7660_get_power(const struct device *dev, enum mma7660_power *power)
 {
-	const struct mma7660_config *config = dev->config;
 	uint8_t val;
 
-	if (config->ops->byte_read(dev, MMA7660_REG_MODE, &val)) {
+	if (mma7660_byte_read(dev, MMA7660_REG_MODE, &val)) {
 		LOG_ERR("Could not get power setting");
 		return -EIO;
 	}
+
 	val &= MMA7660_REG_MODE_MODE_MASK;
 	*power = val;
 
@@ -153,33 +136,107 @@ int mma7660_get_power(const struct device *dev, enum mma7660_power *power)
 
 int mma7660_set_power(const struct device *dev, enum mma7660_power power)
 {
-	const struct mma7660_config *config = dev->config;
-
-	return config->ops->reg_field_update(dev, MMA7660_REG_MODE,
+	return mma7660_reg_field_update(dev, MMA7660_REG_MODE,
 				      MMA7660_REG_MODE_MODE_MASK, power);
 }
 
 static int mma7660_set_odr(const struct device *dev,
-		const struct sensor_value *val)
+		const struct sensor_value *val,
+		enum mma7660_power_mode mode)
 {
-    const struct fxos8700_config *config = dev->config;
-	uint8_t dr;
-	enum mma7660_power power;
+	uint8_t odr;
 
-    return 0;
+	switch(val->val1) {
+	case 120:
+		if (mode == MMA7660_PM_SLEEP) {
+			return -EINVAL;
+		}
+		odr = MMA7660_SR_ODR_RATE_120;
+		break;
+	case 64:
+		if (mode == MMA7660_PM_SLEEP) {
+			return -EINVAL;
+		}
+		odr = MMA7660_SR_ODR_RATE_64;
+		break;
+	case 32:
+		odr = MMA7660_SR_ODR_RATE_32;
+		break;
+	case 16:
+		odr = MMA7660_SR_ODR_RATE_16;
+		break;
+	case 8:
+		odr = MMA7660_SR_ODR_RATE_8;
+		break;
+	case 4:
+		if (mode == MMA7660_PM_SLEEP) {
+			return -EINVAL;
+		}
+		odr = MMA7660_SR_ODR_RATE_4;
+		break;
+	case 2:
+		if (mode == MMA7660_PM_SLEEP) {
+			return -EINVAL;
+		}
+		odr = MMA7660_SR_ODR_RATE_2;
+		break;
+	case 1:
+		odr = MMA7660_SR_ODR_RATE_1;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	mma7660_set_power(dev, MMA7660_POWER_STANDBY);
+
+	if (mode == MMA7660_PM_WAKE) {
+		return mma7660_reg_field_update(dev, MMA7660_REG_SR,
+				MMA7660_SR_WAKE_ODR_MASK,  odr);
+	} else {
+		return mma7660_reg_field_update(dev, MMA7660_REG_SR,
+				MMA7660_SR_SLEEP_ODR_MASK,  odr << MMA7660_SR_SLEEP_FIELD_OFFSET);
+	}
+
+	mma7660_set_power(dev, MMA7660_POWER_ACTIVE);
+
+	LOG_DBG("Set %s ODR to 0x%02x", (mode == MMA7660_PM_WAKE)? "wake" : "sleep", odr);
+
+	return 0;
 }
 
-static int mma7660_sample_fetch(const struct device *dev,
-				                enum sensor_channel chan)
+static int mma7660_sample_fetch(const struct device *dev, enum sensor_channel ch)
 {
-    return 0;
+	const struct mma7660_config *cfg = dev->config;
+	struct mma7660_data *data = dev->data;
+	uint8_t buf[MMA7660_MAX_NUM_BYTES];
+	int16_t *raw;
+	int ret = 0;
+	int i;
+
+	k_sem_take(&data->sem, K_FOREVER);
+
+	/* Read all channels in one transaction */
+	if (mma7660_burst_read(dev, MMA7660_REG_XOUT, buf, MMA7660_MAX_NUM_BYTES)) {
+		LOG_ERR("Could not fetch accelerometer data");
+		ret = -EIO;
+		goto exit;
+	}
+
+#define MMA7660_REG_XOUT       0x00
+#define MMA7660_REG_YOUT       0x01
+#define MMA7660_REG_ZOUT       0x02
+
+exit:
+	k_sem_give(&data->sem);
+
+	return ret;
 }
 
 static int mma7660_channel_get(const struct device *dev,
 				enum sensor_channel chan,
 				struct sensor_value *val)
 {
-    return 0;
+	return 0;
 }
 
 static int mma7660_attr_set(const struct device *dev,
@@ -187,40 +244,41 @@ static int mma7660_attr_set(const struct device *dev,
 			     enum sensor_attribute attr,
 			     const struct sensor_value *val)
 {
-    if (chan != SENSOR_CHAN_ALL)
-    {
-        return -ENOTSUP;
-    }
+	if (chan != SENSOR_CHAN_ALL)
+	{
+		return -ENOTSUP;
+	}
 
-    switch (attr)
-    {
-    case SENSOR_ATTR_SAMPLING_FREQUENCY:
-        break;
-    case SENSOR_ATTR_SLOPE_TH:
-        /* Tap detection threshold */
-        break;
-    case SENSOR_ATTR_SLOPE_DUR:
-        /* Tap detection duration for trigger to fire */
-        break;
-    default:
-        return -ENOTSUP;
-    }
+	switch (attr)
+	{
+	case SENSOR_ATTR_SAMPLING_FREQUENCY:
+		/* Sampling rate on Wake (Auto-Sleep) mode */
+		mma7660_set_odr(dev, val, MMA7660_PM_WAKE);
+		break;
+	case SENSOR_ATTR_SLOPE_TH:
+		/* Tap detection threshold */
+		break;
+	case SENSOR_ATTR_SLOPE_DUR:
+		/* Tap detection duration for trigger to fire */
+		break;
+	default:
+		return -ENOTSUP;
+	}
 
-    return 0;
+	return 0;
 }
 
 static int mma7660_init(const struct device *dev)
 {
-    const struct mma7660_config *config = dev->config;
+	const struct mma7660_config *config = dev->config;
+	const struct sensor_value default_odr = {.val1 = 120, .val2 = 0};
 
-    printf("Initializing mma7660\n");
+	printf("Initializing mma7660\n");
 
-#if DT_ANY_INST_ON_BUS_STATUS_OKAY(i2c)
-    if (!device_is_ready(config->i2c.bus)) {
-        LOG_ERR("I2C bus device not ready");
-        return -ENODEV;
-    }
-#endif
+	if (!device_is_ready(config->i2c.bus)) {
+		LOG_ERR("I2C bus device not ready");
+		return -ENODEV;
+	}
 
 #if CONFIG_MMA7660_TRIGGER
 	if (mma7660_trigger_init(dev)) {
@@ -229,17 +287,18 @@ static int mma7660_init(const struct device *dev)
 	}
 #endif
 
-    // Set ODR (Sampling freq)
+	/* Set default ODR (Sampling freq) */
+	mma7660_set_odr(dev, &default_odr, MMA7660_PM_WAKE);
 
-    // Set AutoSleep / Autowake and stuff
+	/* Set AutoSleep / Autowake and stuff */
 
-    /* Set Active */
-    if (mma7660_set_power(dev, MMA7660_POWER_ACTIVE)) {
+	/* Set Active */
+	if (mma7660_set_power(dev, MMA7660_POWER_ACTIVE)) {
 		LOG_ERR("Could not set active");
 		return -EIO;
 	}
 
-    return 0;
+	return 0;
 }
 
 static DEVICE_API(sensor, mma7660_driver_api) = {
@@ -252,20 +311,19 @@ static DEVICE_API(sensor, mma7660_driver_api) = {
 };
 
 #define MMA7660_INIT(n) \
-    static const struct mma7660_config mma7660_config_##n = {    \
-        .i2c = I2C_DT_SPEC_INST_GET(n),                      \
-        .ops = &mma7660_i2c_ops,                                 \
-    };                                                           \
-                                                                 \
-    static struct mma7660_data mma7660_data_##n;                 \
-                                                                 \
-    SENSOR_DEVICE_DT_INST_DEFINE(n,                              \
-                                 mma7660_init,                   \
-                                 NULL,                           \
-                                 &mma7660_config_##n,            \
-                                 &mma7660_data_##n,              \
-                                 POST_KERNEL,                    \
-                                 CONFIG_SENSOR_INIT_PRIORITY,    \
+	static const struct mma7660_config mma7660_config_##n = {    \
+		.i2c = I2C_DT_SPEC_INST_GET(n),                      \
+	};                                                           \
+                                                                     \
+	static struct mma7660_data mma7660_data_##n;                 \
+                                                                     \
+	SENSOR_DEVICE_DT_INST_DEFINE(n,                              \
+                                 mma7660_init,                       \
+                                 NULL,                               \
+                                 &mma7660_data_##n,                  \
+                                 &mma7660_config_##n,                \
+                                 POST_KERNEL,                        \
+                                 CONFIG_SENSOR_INIT_PRIORITY,        \
                                  &mma7660_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(MMA7660_INIT)

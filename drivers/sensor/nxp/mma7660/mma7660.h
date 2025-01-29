@@ -13,6 +13,8 @@
 
 #define MMA7660_MG_PER_COUNT   47U
 
+#define MMA7660_MAX_READ_RETRIES 5
+
 /* Registers */
 #define MMA7660_REG_XOUT       0x00
 #define MMA7660_REG_YOUT       0x01
@@ -32,6 +34,8 @@
 #define MMA7660_SR_SLEEP_FIELD_OFFSET 0x03
 #define MMA7660_SR_WAKE_ODR_MASK      0x07
 #define MMA7660_SR_SLEEP_ODR_MASK     0x18
+
+#define MMA7660_REG_OUT_BIT_ALERT BIT(6)
 
 /* Interrupt Sources */
 #define MMA7660_INTSRC_NONE        0x00

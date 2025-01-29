@@ -204,27 +204,87 @@ static int mma7660_set_odr(const struct device *dev,
 	return 0;
 }
 
-static int mma7660_sample_fetch(const struct device *dev, enum sensor_channel ch)
+static int mma7660_accel_convert(struct sensor_value *val, int16_t raw)
 {
-	const struct mma7660_config *cfg = dev->config;
+	return 0;
+}
+
+static int mma7660_get_accel_data(const struct device *dev,
+		struct sensor_value *val, enum sensor_channel chan)
+{
+	struct mma7660_data *data = dev->data;
+	int16_t *raw;
+
+	/* TODO: Check if I need to do something with full-scale range */
+
+	if (chan == SENSOR_CHAN_ACCEL_XYZ) {
+		raw = &data->raw[MMA7660_CHANNEL_ACCEL_X];
+		for (int i = 0; i < MMA7660_MAX_NUM_CHANNELS; i++) {
+			mma7660_accel_convert(val++, *raw++);
+		}
+	} else {
+		switch (chan) {
+		case SENSOR_CHAN_ACCEL_X:
+			raw = &data->raw[MMA7660_CHANNEL_ACCEL_X];
+			break;
+		case SENSOR_CHAN_ACCEL_Y:
+			raw = &data->raw[MMA7660_CHANNEL_ACCEL_Y];
+			break;
+		case SENSOR_CHAN_ACCEL_Z:
+			raw = &data->raw[MMA7660_CHANNEL_ACCEL_Z];
+			break;
+		default:
+			return -ENOTSUP;
+		}
+		mma7660_accel_convert(val, *raw);
+	}
+
+	k_sem_give(&data->sem);
+
+	return 0;
+}
+
+static int mma7660_sample_fetch(const struct device *dev, enum sensor_channel chan)
+{
 	struct mma7660_data *data = dev->data;
 	uint8_t buf[MMA7660_MAX_NUM_BYTES];
-	int16_t *raw;
 	int ret = 0;
-	int i;
+	int retries = MMA7660_MAX_READ_RETRIES;
+        bool alert_bit_set = 0;
+
+	if (chan != SENSOR_CHAN_ALL) {
+		LOG_ERR("Unsupported sensor channel");
+		return -ENOTSUP;
+	}
 
 	k_sem_take(&data->sem, K_FOREVER);
 
-	/* Read all channels in one transaction */
-	if (mma7660_burst_read(dev, MMA7660_REG_XOUT, buf, MMA7660_MAX_NUM_BYTES)) {
-		LOG_ERR("Could not fetch accelerometer data");
-		ret = -EIO;
-		goto exit;
-	}
+	/* Read all channels in one transaction. If the Alert bit was set on
+	 * one of the registers, then it was read at the same time as the device
+	 * was attempting to update the contents. The register must hence be
+	 * read again. We will only do this MMA7660_MAX_READ_RETRIES times.
+	 */
+	do {
+		alert_bit_set = false;
 
-#define MMA7660_REG_XOUT       0x00
-#define MMA7660_REG_YOUT       0x01
-#define MMA7660_REG_ZOUT       0x02
+		if (mma7660_burst_read(dev, MMA7660_REG_XOUT, buf, MMA7660_MAX_NUM_BYTES)) {
+			LOG_ERR("Could not fetch accelerometer data");
+			ret = -EIO;
+			goto exit;
+		}
+
+		/* If Alert bit set on at least one of the registers, read all again */
+		for (int i = 0; i < MMA7660_MAX_NUM_BYTES; i++) {
+			alert_bit_set |= (buf[i] & MMA7660_REG_OUT_BIT_ALERT);
+		}
+	} while ((retries-- > 0) && alert_bit_set);
+
+	//if (
+
+	/* Save into data buffer */
+	for (int i = 0; i < MMA7660_MAX_NUM_BYTES; i++) {
+		data->raw[i] = buf[i];
+	}
 
 exit:
 	k_sem_give(&data->sem);
@@ -236,6 +296,22 @@ static int mma7660_channel_get(const struct device *dev,
 				enum sensor_channel chan,
 				struct sensor_value *val)
 {
+	switch (chan) {
+	case SENSOR_CHAN_ALL:
+		__fallthrough;
+	case SENSOR_CHAN_ACCEL_XYZ:
+		__fallthrough;
+	case SENSOR_CHAN_ACCEL_X:
+		__fallthrough;
+	case SENSOR_CHAN_ACCEL_Y:
+		__fallthrough;
+	case SENSOR_CHAN_ACCEL_Z:
+		return mma7660_get_accel_data(dev, val, chan);
+	default:
+		LOG_ERR("Unsupported channel");
+		return -ENOTSUP;
+	}
+
 	return 0;
 }
 
@@ -253,8 +329,7 @@ static int mma7660_attr_set(const struct device *dev,
 	{
 	case SENSOR_ATTR_SAMPLING_FREQUENCY:
 		/* Sampling rate on Wake (Auto-Sleep) mode */
-		mma7660_set_odr(dev, val, MMA7660_PM_WAKE);
-		break;
+		return mma7660_set_odr(dev, val, MMA7660_PM_WAKE);
 	case SENSOR_ATTR_SLOPE_TH:
 		/* Tap detection threshold */
 		break;

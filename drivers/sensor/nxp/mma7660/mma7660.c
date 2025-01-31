@@ -206,6 +206,7 @@ static int mma7660_set_odr(const struct device *dev,
 
 static int mma7660_accel_convert(struct sensor_value *val, int16_t raw)
 {
+
 	return 0;
 }
 
@@ -216,6 +217,8 @@ static int mma7660_get_accel_data(const struct device *dev,
 	int16_t *raw;
 
 	/* TODO: Check if I need to do something with full-scale range */
+
+	k_sem_take(&data->sem, K_FOREVER);
 
 	if (chan == SENSOR_CHAN_ACCEL_XYZ) {
 		raw = &data->raw[MMA7660_CHANNEL_ACCEL_X];
@@ -250,7 +253,7 @@ static int mma7660_sample_fetch(const struct device *dev, enum sensor_channel ch
 	uint8_t buf[MMA7660_MAX_NUM_BYTES];
 	int ret = 0;
 	int retries = MMA7660_MAX_READ_RETRIES;
-        bool alert_bit_set = 0;
+        uint8_t alert_bit_set = 0;
 
 	if (chan != SENSOR_CHAN_ALL) {
 		LOG_ERR("Unsupported sensor channel");
@@ -277,9 +280,14 @@ static int mma7660_sample_fetch(const struct device *dev, enum sensor_channel ch
 		for (int i = 0; i < MMA7660_MAX_NUM_BYTES; i++) {
 			alert_bit_set |= (buf[i] & MMA7660_REG_OUT_BIT_ALERT);
 		}
+
 	} while ((retries-- > 0) && alert_bit_set);
 
-	//if (
+	if (alert_bit_set) {
+		LOG_ERR("All register read retries failed\n");
+		ret = -ETIMEDOUT;
+		goto exit;
+	}
 
 	/* Save into data buffer */
 	for (int i = 0; i < MMA7660_MAX_NUM_BYTES; i++) {

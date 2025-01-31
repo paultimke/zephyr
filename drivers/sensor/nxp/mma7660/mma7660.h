@@ -11,7 +11,11 @@
 
 #define MMA7660_I2C_ADDR       (0x4c)
 
-#define MMA7660_MG_PER_COUNT   47U
+/* The only measurement range of the sensor is -1.5g to 1.5
+ * as 6 signed bits. Hence, scale in ms^2 is:
+ * scale = (1.5 - (-1.5) * SENSOR_G) / (2^6 - 1) = 0.466980952
+ */
+#define MMA7660_NANO_SCALE       466980952UL
 
 #define MMA7660_MAX_READ_RETRIES 5
 

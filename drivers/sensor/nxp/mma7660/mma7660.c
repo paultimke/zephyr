@@ -144,6 +144,7 @@ static int mma7660_set_odr(const struct device *dev,
 		const struct sensor_value *val,
 		enum mma7660_power_mode mode)
 {
+	int ret;
 	uint8_t odr;
 
 	switch(val->val1) {
@@ -187,25 +188,33 @@ static int mma7660_set_odr(const struct device *dev,
 		return -EINVAL;
 	}
 
-	mma7660_set_power(dev, MMA7660_POWER_STANDBY);
-
+	/* Update Sample Rate (SR) register */
 	if (mode == MMA7660_PM_WAKE) {
-		return mma7660_reg_field_update(dev, MMA7660_REG_SR,
+		ret = mma7660_reg_field_update(dev, MMA7660_REG_SR,
 				MMA7660_SR_WAKE_ODR_MASK,  odr);
 	} else {
-		return mma7660_reg_field_update(dev, MMA7660_REG_SR,
+		ret = mma7660_reg_field_update(dev, MMA7660_REG_SR,
 				MMA7660_SR_SLEEP_ODR_MASK,  odr << MMA7660_SR_SLEEP_FIELD_OFFSET);
 	}
 
-	mma7660_set_power(dev, MMA7660_POWER_ACTIVE);
+	if (ret != 0) {
+		return ret;
+	}
 
 	LOG_DBG("Set %s ODR to 0x%02x", (mode == MMA7660_PM_WAKE)? "wake" : "sleep", odr);
-
 	return 0;
 }
 
 static int mma7660_accel_convert(struct sensor_value *val, int16_t raw)
 {
+	int64_t micro_ms2;
+
+	/* Convert to micro m/s^2. */
+	micro_ms2 = raw * MMA7660_MICRO_SCALE;
+
+	/* Separate fractional part and remove nano scale */
+	val->val1 = (int32_t) micro_ms2 / 1000000;
+	val->val2 = (int32_t) micro_ms2 % 1000000;
 
 	return 0;
 }
@@ -216,11 +225,9 @@ static int mma7660_get_accel_data(const struct device *dev,
 	struct mma7660_data *data = dev->data;
 	int16_t *raw;
 
-	/* TODO: Check if I need to do something with full-scale range */
-
 	k_sem_take(&data->sem, K_FOREVER);
 
-	if (chan == SENSOR_CHAN_ACCEL_XYZ) {
+	if (chan == SENSOR_CHAN_ACCEL_XYZ || chan == SENSOR_CHAN_ALL) {
 		raw = &data->raw[MMA7660_CHANNEL_ACCEL_X];
 		for (int i = 0; i < MMA7660_MAX_NUM_CHANNELS; i++) {
 			mma7660_accel_convert(val++, *raw++);
@@ -289,9 +296,9 @@ static int mma7660_sample_fetch(const struct device *dev, enum sensor_channel ch
 		goto exit;
 	}
 
-	/* Save into data buffer */
+	/* Save to data buffer and convert from 6bit signed to 32bit signed */
 	for (int i = 0; i < MMA7660_MAX_NUM_BYTES; i++) {
-		data->raw[i] = buf[i];
+		data->raw[i] = sign_extend(buf[i], MMA7660_BIT_PRECISION - 1);
 	}
 
 exit:
@@ -353,8 +360,12 @@ static int mma7660_attr_set(const struct device *dev,
 
 static int mma7660_init(const struct device *dev)
 {
+	int ret = 0;
 	const struct mma7660_config *config = dev->config;
 	const struct sensor_value default_odr = {.val1 = 120, .val2 = 0};
+
+	// TODO: Add missing attributes to set. I'll need to do a public API
+	// for the sensor and add the missing sensor attributes there.
 
 	printf("Initializing mma7660\n");
 
@@ -370,15 +381,26 @@ static int mma7660_init(const struct device *dev)
 	}
 #endif
 
+	/* We need STANDBY before changing any regs (e.g. setting ODR) */
+	ret = mma7660_set_power(dev, MMA7660_POWER_STANDBY);
+	if (ret) {
+		LOG_ERR("Failed to set standby power mode");
+		return ret;
+	}
+
 	/* Set default ODR (Sampling freq) */
-	mma7660_set_odr(dev, &default_odr, MMA7660_PM_WAKE);
+	ret = mma7660_set_odr(dev, &default_odr, MMA7660_PM_WAKE);
+	if (ret) {
+		LOG_ERR("Could not set default ODR. ret = %d", ret);
+	}
 
 	/* Set AutoSleep / Autowake and stuff */
 
 	/* Set Active */
-	if (mma7660_set_power(dev, MMA7660_POWER_ACTIVE)) {
-		LOG_ERR("Could not set active");
-		return -EIO;
+	ret = mma7660_set_power(dev, MMA7660_POWER_ACTIVE);
+	if (ret) {
+		LOG_ERR("Failed to set active power mode");
+		return ret;
 	}
 
 	return 0;

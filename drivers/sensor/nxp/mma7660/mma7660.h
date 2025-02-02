@@ -15,9 +15,11 @@
  * as 6 signed bits. Hence, scale in ms^2 is:
  * scale = (1.5 - (-1.5) * SENSOR_G) / (2^6 - 1) = 0.466980952
  */
-#define MMA7660_NANO_SCALE       466980952UL
+#define MMA7660_MICRO_SCALE      466981UL
 
 #define MMA7660_MAX_READ_RETRIES 5
+
+#define MMA7660_BIT_PRECISION 6
 
 /* Registers */
 #define MMA7660_REG_XOUT       0x00

@@ -59,12 +59,12 @@
 #define PAJ7620_NORMAL_SPEED             0xAC /* Normal speed 120 fps */
 #define PAJ7620_GAME_SPEED               0x30 /* Game Mode speed 240 fps */
 
-/** Gesture Bit Masks
- * Return values from gesture I2C memory reads in Bank 0 - 0x43 & 0x44
- * A set bit means that gesture has been detected
- *
- * \see #PAJ7620_ADDR_GES_RESULT_0 (all except wave flag)
- * \see #PAJ7620_ADDR_GES_RESULT_1 (wave flag gesture)
+/**
+ * Gesture Bit Masks
+ * A set bit means that gesture has been detected.
+ * Results are stored in:
+ * PAJ7620_REG_GES_RESULT_0 (all except wave flag)
+ * PAJ7620_REG_GES_RESULT_1 (wave flag gesture)
  */
 #define GES_UP_FLAG                      0x01
 #define GES_DOWN_FLAG                    0x02

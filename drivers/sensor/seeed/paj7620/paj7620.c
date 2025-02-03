@@ -4,28 +4,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
-  Description: This driver class can recognize 9 gestures and output the result,
-        including move up, move down, move left, move right,
-        move forward, move backward, circle-clockwise,
-        circle-anti (counter) clockwise, and wave.
-        The driver also allows changing the sensor to 'cursor mode' where it
-        tracks the closest object in view on an (X,Y) coordinate system.
+#define DT_DRV_COMPAT seeed_paj7620
 
-  PAJ7620U2 Sensor data sheet for reference found here:
-    https://datasheetspdf.com/pdf-file/1309990/PixArt/PAJ7620U2/1
-
-  Driver sources, latest code, and authors available at:
-    https://github.com/acrandal/RevEng_PAJ7620
-*/
-
-#include "paj7620.h"
-#include "paj7620_reg.h"
 #include "zephyr/drivers/i2c.h"
+#include "zephyr/drivers/sensor/paj7620.h"
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/logging/log.h>
+
+#include "paj7620.h"
+#include "paj7620_reg.h"
+
+/** TODO:
+ * Enable Z-Axis gestures (Backward, Forward) as KConfig option - disabled by default
+ * Enable Circular gestures (Clockwise, Anticlockwise, Wave) as Kconfig option - disabled by default
+ * Another Kconfig option -> Sensor is Gesture mode / Sensor is Cursor Mode
+ */
 
 LOG_MODULE_REGISTER(PAJ7620, CONFIG_SENSOR_LOG_LEVEL);
 
@@ -50,13 +45,6 @@ static int paj7620_byte_write(const struct device *dev, uint8_t reg, uint8_t byt
 	return i2c_reg_write_byte_dt(&config->i2c, reg, byte);
 }
 
-
-/**
- * Select memory bank to read/write to
- * The PAJ7620 has two memory banks. The user must select which bank to use
- * when reading and writing over I2C.
- * Note: This driver defaults to operations resetting to BANK0 for general operation.
- */
 static int paj7620_select_register_bank(const struct device *dev, enum paj7620_mem_bank bank)
 {
 	int ret = 0;
@@ -75,19 +63,12 @@ static int paj7620_select_register_bank(const struct device *dev, enum paj7620_m
 	return 0;
 }
 
-
-/**
- * Reads device memory to check for the PAJ7620 hardware identifier (ID)
- * At memory address BANK0, 0x00 the device returns 0x20.
- * At memory address BANK0, 0x01 the device returns 0x76.
- * If this is not true, a non-PAJ7620 I2C device is attached at this I2C address.
- */
 static bool paj7620_is_hwId_correct(const struct device *dev)
 {
 	uint8_t ret = 0;
 	uint8_t hwId[2] = {0, 0};
 
-	/* Device ID is stored in BANK0 */
+	/* Part ID is stored in bank 0 */
 	ret = paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
 	if (ret) {
 		LOG_ERR("Failed to select register bank");
@@ -103,7 +84,8 @@ static bool paj7620_is_hwId_correct(const struct device *dev)
 
 	/* Verify part ID is corect for PAJ7620U2 */
 	if ((hwId[0] != PAJ7620_PART_ID_LSB ) || (hwId[1] != PAJ7620_PART_ID_MSB)) {
-		LOG_ERR("Read Hardware ID incorrect for PAJ7620");
+		uint16_t id = (hwId[1] << 8 ) | (hwId[0] & 0x00FF);
+		LOG_ERR("Hardware ID %d does not match for PAJ7620", id);
 		return false;
 	}
 
@@ -345,92 +327,21 @@ void paj7620_enable()
 }
 
 /**
- * Sets time sensor waits between getGesture call to reading gesture from sensor
- * \par
- *  This time is most important in hardware interrupt driven use of the driver.
- *  The PAJ7620's interrupt pin will raise when a gesture is first recognized.
- *  If the user is trying to move their hand to do a Backward gesture, they will
- *  first trip a lateral (up, down, left, right) gesture, which will immediately
- *  raise the interrupt.
- *  By increasing this value, the user shall have more time to reach in and complete
- *  their intended gesture before the interrupt is handled.
- * \note Default value for entry time is 0
- * \param newGestureEntryTime : milliseconds (ms) for delay
- * \return none
- */
-void paj7620_setGestureEntryTime(unsigned long newGestureEntryTime)
-{
-  gestureEntryTime = newGestureEntryTime;
-}
-
-
-/**
- * Sets time sensor waits during getGesture() after gesture value read
- * \par
- *  This value represents the time the user has to exit the sensor's field of view
- *  before the next gesture might be read, which is most important in the Z axis gestures
- *  (forward and backward).
- *  Setting this lower makes the driver delay less so the main program can control
- *  more of the global timing, but puts responsibility on the coder to take this higher
- *  sensitivity into account.
- * \note Default value for exit time is 200
- * \param newGestureEntryTime : milliseconds (ms) for delay
- * \return none
- */
-void paj7620_setGestureExitTime(unsigned long newGestureExitTime)
-{
-  gestureExitTime = newGestureExitTime;
-}
-
-
-/**
- * Set sensor to "game mode" sampling speed of 240fps
- * \note Value of 0x30 for setting comes from PixArt contact
- *
- * \param none
- * \return none
- */
-void paj7620_setGameSpeed()
-{
-  selectRegisterBank(BANK1);
-  writeRegister(PAJ7620_ADDR_R_IDLE_TIME_0, PAJ7620_GAME_SPEED);
-  selectRegisterBank(BANK0);
-}
-
-
-/**
- * Set sensor to "normal" sampling speed of 120fps
- * \note Value of 0xAC for setting comes from PixArt contact
- *
- * \param none
- * \return none
- */
-/*
-void paj7620_setNormalSpeed()
-{
-  selectRegisterBank(BANK1);
-  writeRegister(PAJ7620_ADDR_R_IDLE_TIME_0, PAJ7620_NORMAL_SPEED);
-  selectRegisterBank(BANK0);
-}
-*/
-
-
-/**
  * Clear current gesture interrupt vectors without returning gesture value
  * Note: The gesture interrupt vectors are reset in hardware after any reads
  */
-static void paj7620_clear_gesture_interrupts(void)
+static void paj7620_clear_gesture_interrupts(const struct device *dev)
 {
 	int ret = 0;
 	uint8_t gesture_data[2];
 
-	ret = paj7620_byte_read(dev, PAJ7620_ADDR_GES_RESULT_0, &gesture_data[0]);
-	ret += paj7620_byte_read(dev, PAJ7620_ADDR_GES_RESULT_1, &gesture_data[1]);
+	ret = paj7620_byte_read(dev, PAJ7620_REG_GES_RESULT_0, &gesture_data[0]);
+	ret += paj7620_byte_read(dev, PAJ7620_REG_GES_RESULT_1, &gesture_data[1]);
 	if (ret) {
-		return -EIO;
+		LOG_ERR("Failed to clear gesture interrupts");
 	}
 
-	return 0;
+	return;
 }
 
 
@@ -454,17 +365,17 @@ int paj7620_getWaveCount()
  * to buffer high speed polling & return against human gesture speeds.
  */
 static int paj7620_fwd_bkwd_gesture_check(const struct device *dev,
-		                          enum paj7620_gesture initial_gesture
+		                          enum paj7620_gesture initial_gesture,
 					  enum paj7620_gesture *return_gesture)
 {
 	int ret = 0;
 	struct paj7620_data *data = dev->data;
 	uint8_t gesture_data = 0;
-	paj7620_gesture result = initial_gesture;
+	enum paj7620_gesture result = initial_gesture;
 
 	k_msleep(data->gest_entry_time);
 
-	ret = paj7620_burst_read(dev, PAJ7620_ADDR_GES_RESULT_0, &gesture_data, 1);
+	ret = paj7620_byte_read(dev, PAJ7620_REG_GES_RESULT_0, &gesture_data);
 	if (ret) {
 		return -EIO;
 	}
@@ -474,7 +385,7 @@ static int paj7620_fwd_bkwd_gesture_check(const struct device *dev,
 		k_msleep(data->gest_exit_time);
 		result = GES_FORWARD;
 	}
-	else if (data1 == GES_BACKWARD_FLAG)
+	else if (gesture_data == GES_BACKWARD_FLAG)
 	{
 		k_msleep(data->gest_exit_time);
 		result = GES_BACKWARD;
@@ -484,26 +395,14 @@ static int paj7620_fwd_bkwd_gesture_check(const struct device *dev,
 	return 0;
 }
 
-/**
- * Reads the latest gesture from the device
- *
- * \par
- *  This is the central method for reading and calculating the main 9 gestures
- *  the PAJ7620 can recognize. It returns a Gesture enum with the read gesture,
- *  which can by GES_NONE if no gesture was currently found.
- * \note Clears interrupt vector of gestures when called
- * \param none
- * \return \link Gesture \endlink found or \link GES_NONE Gesture::GES_NONE \endlink if no gesture found
- */
 static int paj7620_read_gesture(const struct device *dev, enum paj7620_gesture *result)
 {
-	struct paj7620_data *data = dev->data;
-
 	int ret = 0;
+	struct paj7620_data *data = dev->data;
 	uint8_t gest_data_reg0 = 0;
 	uint8_t gest_data_reg1 = 0;
 
-	ret = paj7620_burst_read(dev, PAJ7620_ADDR_GES_RESULT_0, &gest_data_reg0, 1);
+	ret = paj7620_byte_read(dev, PAJ7620_REG_GES_RESULT_0, &gest_data_reg0);
 
 	if (ret) {
 		LOG_ERR("Failed to read gesture data");
@@ -548,7 +447,7 @@ static int paj7620_read_gesture(const struct device *dev, enum paj7620_gesture *
 
 		default:
 			/* Bank 1 (Reg 0x44) has wave flag */
-			ret = paj7620_burst_read(dev, PAJ7620_ADDR_GES_RESULT_0, &gest_data_reg0, 1);
+			ret = paj7620_byte_read(dev, PAJ7620_REG_GES_RESULT_1, &gest_data_reg0);
 			if (ret == 0 && gest_data_reg1 == GES_WAVE_FLAG) {
 				*result = GES_WAVE;
 			}
@@ -565,11 +464,11 @@ static int paj7620_read_gesture(const struct device *dev, enum paj7620_gesture *
  * Objects in view have their IR reflection measured. This interface returns a
  * measure of this brightness from 0..255
  */
-static int paj7620_get_object_brightness(uint8_t *result)
+static int paj7620_get_object_brightness(const struct device *dev, uint8_t *result)
 {
 	uint8_t brightness = 0x00;
 
-	if (paj7620_byte_read(dev, PAJ7620_ADDR_OBJECT_BRIGHTNESS, &brightness)) {
+	if (paj7620_byte_read(dev, PAJ7620_REG_OBJECT_BRIGHTNESS, &brightness)) {
 		return -EIO;
 	}
 
@@ -839,11 +738,32 @@ paj7620_corner paj7620_getpaj7660_corner()
 }
 */
 
-static int paj7620_set_odr(const struct device *dev, const struct sensor_value *val)
+static int paj7620_set_sampling_rate(const struct device *dev, const struct sensor_value *val)
 {
 	int ret = 0;
+	int fps = 0;
 
-	return ret;
+	switch (val->val1) {
+	case 120:
+		fps = PAJ7620_NORMAL_SPEED;
+		break;
+	case 240:
+		fps = PAJ7620_GAME_SPEED;
+		break;
+	default:
+		LOG_ERR("Unsupported sample rate");
+		break;
+	}
+
+	ret = paj7620_select_register_bank(dev, PAJ7620_MEMBANK_1);
+	ret += paj7620_byte_write(dev, PAJ7620_REG_R_IDLE_TIME_0, fps);
+	ret += paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
+	if (ret) {
+		LOG_ERR("Failed to set sample rate");
+		return -EIO;
+	}
+
+	return 0;
 }
 
 static int paj7620_sample_fetch(const struct device *dev, enum sensor_channel chan)
@@ -867,6 +787,9 @@ static int paj7620_attr_set(const struct device *dev,
 			    enum sensor_attribute attr,
 			    const struct sensor_value *val)
 {
+	int ret = 0;
+	const struct paj7620_data *data = dev->data;
+
 	if (chan != SENSOR_CHAN_ALL)
 	{
 		return -ENOTSUP;
@@ -875,19 +798,22 @@ static int paj7620_attr_set(const struct device *dev,
 	switch (attr)
 	{
 	case SENSOR_ATTR_SAMPLING_FREQUENCY:
-		/* Sampling rate on Wake (Auto-Sleep) mode */
-		return paj7620_set_odr(dev, val);
-	case SENSOR_ATTR_SLOPE_TH:
-		/* Tap detection threshold */
+		ret = paj7620_set_sampling_rate(dev, val);
 		break;
-	case SENSOR_ATTR_SLOPE_DUR:
-		/* Tap detection duration for trigger to fire */
+
+	case SENSOR_ATTR_PAJ7620_GESTURE_ENTRY_TIME:
+		data->gest_entry_time = val->val1;
 		break;
+
+	case SENSOR_ATTR_PAJ7620_GESTURE_EXIT_TIME:
+		data->gest_exit_time = val->val1;
+		break;
+
 	default:
 		return -ENOTSUP;
 	}
 
-	return 0;
+	return ret;
 }
 
 
@@ -943,9 +869,13 @@ static int paj7620_init(const struct device *dev)
 	//if( !isPAJ7620UDevice() ) {
 	//return -EIO;                   // Return false - wrong device found
 	//}
+	if (!paj7620_is_hwId_correct(dev)) {
+		LOG_ERR("Invalid device. Hardware ID mismatch");
+		return -ENOTSUP;
+	}
 
 	//initializeDeviceSettings();         // Set registers up
-	//setGestureMode();                   // Specifically set to gesture mode
+	ret = paj7620_set_gesture_mode(dev);
 
 	return 0;
 }

@@ -1,9 +1,5 @@
-# Makefile - PAJ7620 gesture sensor
-#
 # Copyright (c) Paul Timke <ptimkec@live.com>
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 zephyr_library()
 

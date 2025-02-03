@@ -4,5 +4,4 @@
 # zephyr-keep-sorted-start
 add_subdirectory_ifdef(CONFIG_GROVE_SENSORS grove)
 add_subdirectory_ifdef(CONFIG_HM330X hm330x)
-add_subdirectory_ifdef(CONFIG_PAJ7620 paj7620)
 # zephyr-keep-sorted-stop

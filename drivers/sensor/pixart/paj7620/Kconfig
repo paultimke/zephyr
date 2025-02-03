@@ -1,0 +1,10 @@
+# Copyright (c) Paul Timke <ptimkec@live.com>
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig PAJ7620
+	bool "PAJ7620 gesture sensor driver"
+	default y
+	depends on DT_HAS_PIXART_PAJ7620_ENABLED
+	select I2C if $(dt_compat_on_bus, $(DT_COMPAT_PIXART_PAJ7620), i2c)
+	help
+	  Enable driver for the PAJ7620 gesture sensor

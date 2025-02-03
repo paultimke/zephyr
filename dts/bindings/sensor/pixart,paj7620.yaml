@@ -1,11 +1,11 @@
 # Copyright (c) Paul Timke <ptimkec@live.com>
 # SPDX-License-Identifier: Apache-2.0
-#
+
 description: |
-    Seeed PAJ7620 gesture sensor. See datasheet at
+    Pixart PAJ7620 gesture sensor. See datasheet at
     https://datasheetspdf.com/pdf-file/1309990/PixArt/PAJ7620U2/1
 
-compatible: "seeed,paj7620"
+compatible: "pixart,paj7620"
 
 include: [sensor-device.yaml, i2c-device.yaml]
 

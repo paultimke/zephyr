@@ -4,14 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define DT_DRV_COMPAT seeed_paj7620
+#define DT_DRV_COMPAT pixart_paj7620
 
-#include "zephyr/drivers/i2c.h"
-#include "zephyr/drivers/sensor/paj7620.h"
+#include <zephyr/drivers/i2c.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/drivers/sensor/paj7620.h>
 
 #include "paj7620.h"
 #include "paj7620_reg.h"

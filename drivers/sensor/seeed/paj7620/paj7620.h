@@ -17,16 +17,19 @@
     https://github.com/acrandal/RevEng_PAJ7620
 */
 
-#ifndef __PAJ7620_H__
-#define __PAJ7620_H__
+#ifndef ZEPHYR_DRIVERS_SENSOR_PAJ7620_H_
+#define ZEPHYR_DRIVERS_SENSOR_PAJ7620_H_
 
 #include "paj7620_reg.h"
+#include <zephyr/drivers/sensor/paj7620.h>
+
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/i2c.h>
 #if CONFIG_PAJ7620_TRIGGER
 #include <zephyr/drivers/gpio.h>
 #endif
+
 
 /** DEVICE'S I2C ID - defined by manufacturer */
 #define PAJ7620_I2C_BUS_ADDR             0x73
@@ -243,19 +246,6 @@ const unsigned short setCursorModeRegisterArray[] = {
     0xEF00    // Set Bank 0 (parking it)
 };
 
-enum paj7620_gesture {
-	GES_NONE = 0,      /* No gesture */
-	GES_UP,            /* Upwards gesture */
-	GES_DOWN,	   /* Downward gesture */
-	GES_LEFT,          /* Leftward gesture */
-	GES_RIGHT,         /* Rightward gesture */
-	GES_FORWARD,       /* Forward gesture */
-	GES_BACKWARD,      /* Backward gesture */
-	GES_CLOCKWISE,     /* Clockwise circular gesture */
-	GES_ANTICLOCKWISE, /* Anticlockwise circular gesture */
-	GES_WAVE           /* Wave gesture */
-};
-
 /** Used for selecting PAJ7620 memory bank to read/write from */
 enum paj7620_mem_bank {
 	PAJ7620_MEMBANK_0 = PAJ7620_BANK_0,
@@ -290,6 +280,7 @@ struct paj7620_data {
 	struct k_sem sem;
 	uint64_t gest_entry_time; /* User set gesture entry delay in ms (default: 0) */
 	uint64_t gest_exit_time;  /* User set gesture exit delay in ms (default: 200) */
+	enum paj7620_gesture gesture;
 
 #ifdef CONFIG_PAJ7620_TRIGGER
 	const struct device *dev;
@@ -299,4 +290,4 @@ struct paj7620_data {
 #endif
 };
 
-#endif /* __PAJ7620_H__ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_PAJ7620_H_ */

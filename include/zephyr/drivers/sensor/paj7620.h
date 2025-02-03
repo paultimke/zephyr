@@ -22,6 +22,19 @@ extern "C"
 
 #include <zephyr/drivers/sensor.h>
 
+enum paj7620_gesture {
+	PAJ7620_GES_NONE = 0,      /* No gesture */
+	PAJ7620_GES_UP,            /* Upwards gesture */
+	PAJ7620_GES_DOWN,	   /* Downward gesture */
+	PAJ7620_GES_LEFT,          /* Leftward gesture */
+	PAJ7620_GES_RIGHT,         /* Rightward gesture */
+	PAJ7620_GES_FORWARD,       /* Forward gesture */
+	PAJ7620_GES_BACKWARD,      /* Backward gesture */
+	PAJ7620_GES_CLOCKWISE,     /* Clockwise circular gesture */
+	PAJ7620_GES_ANTICLOCKWISE, /* Anticlockwise circular gesture */
+	PAJ7620_GES_WAVE           /* Wave gesture */
+};
+
 enum sensor_attribute_paj7620 {
 	/**
 	 * Time in milliseconds (ms) from which a first gesture is detected
@@ -35,6 +48,15 @@ enum sensor_attribute_paj7620 {
 
 	/** Time in milliseconds (ms) for exiting the sensor's field of view */
 	SENSOR_ATTR_PAJ7620_GESTURE_EXIT_TIME,
+};
+
+enum sensor_channel_paj7620 {
+	/** This channel will contain gesture data (out of the 9 gestures) */
+	SENSOR_CHAN_PAJ7620_GESTURES = SENSOR_CHAN_PRIV_START
+};
+
+enum sensor_trigger_paj7620 {
+	SENSOR_TRIG_PAJ7620_GESTURE_DET = SENSOR_TRIG_PRIV_START
 };
 
 

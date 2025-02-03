@@ -16,6 +16,16 @@
 #include "paj7620.h"
 #include "paj7620_reg.h"
 
+#ifdef LOG_ERR
+#undef LOG_ERR
+#define LOG_ERR(...) {printf(__VA_ARGS__); printf("\n");}
+#endif
+
+#ifdef LOG_DBG
+#undef LOG_DBG
+#define LOG_DBG(...) {printf(__VA_ARGS__); printf("\n");}
+#endif
+
 /** TODO:
  * Enable Z-Axis gestures (Backward, Forward) as KConfig option - disabled by default
  * Enable Circular gestures (Clockwise, Anticlockwise, Wave) as Kconfig option - disabled by default
@@ -63,7 +73,9 @@ static int paj7620_select_register_bank(const struct device *dev, enum paj7620_m
 	return 0;
 }
 
-static bool paj7620_is_hwId_correct(const struct device *dev)
+/* TODO: Change to just return (as param) hw id, and then verify that on
+ * the init function */
+static uint8_t paj7620_is_hwId_correct(const struct device *dev)
 {
 	uint8_t ret = 0;
 	uint8_t hwId[2] = {0, 0};
@@ -72,24 +84,26 @@ static bool paj7620_is_hwId_correct(const struct device *dev)
 	ret = paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
 	if (ret) {
 		LOG_ERR("Failed to select register bank");
-		return false;
+		return 0;
 	}
 
 	ret = paj7620_byte_read(dev, PAJ7620_REG_PART_ID_0, &hwId[0]);
 	ret += paj7620_byte_read(dev, PAJ7620_REG_PART_ID_1, &hwId[1]);
 	if (ret) {
 		LOG_ERR("Failed to read hardware ID");
-		return false;
+		return 0;
 	}
 
 	/* Verify part ID is corect for PAJ7620U2 */
 	if ((hwId[0] != PAJ7620_PART_ID_LSB ) || (hwId[1] != PAJ7620_PART_ID_MSB)) {
 		uint16_t id = (hwId[1] << 8 ) | (hwId[0] & 0x00FF);
 		LOG_ERR("Hardware ID %d does not match for PAJ7620", id);
-		return false;
+		return 0;
 	}
 
-	return true;
+	LOG_DBG("Hardware ID correct. Read 0x%02x 0x%02x", hwId[0], hwId[1]);
+	LOG_DBG("This is 0x%04x", (hwId[1] << 8) | (hwId[0] & 0x00FF));
+	return 1;
 }
 
 
@@ -122,14 +136,18 @@ static int paj7620_write_register_array(const struct device *dev,
 		reg_addr = (word & 0xFF00) >> 8;
 		value = (word & 0x00FF);
 
+		LOG_DBG("Writing to reg 0x%02x value 0x%02x", reg_addr, value);
+
 		ret = paj7620_byte_write(dev, reg_addr, value);
 		if (ret) {
 			return -EIO;
 		}
+
+		k_usleep(100);
 	}
 
-	// Guarantee to be in bank 0
-	paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
+	// Go back to select bank 0
+	return paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
 }
 
 
@@ -141,6 +159,7 @@ static int paj7620_write_register_array(const struct device *dev,
  */
 static int paj7620_init_device_settings(const struct device *dev)
 {
+	LOG_DBG("Initing device settings");
 	return paj7620_write_register_array(dev, initRegisterArray, INIT_REG_ARRAY_SIZE);
 }
 
@@ -151,6 +170,7 @@ static int paj7620_init_device_settings(const struct device *dev)
  */
 static int paj7620_set_gesture_mode(const struct device *dev)
 {
+	LOG_DBG("Setting gesture mode");
 	return paj7620_write_register_array(dev,
 			setGestureModeRegisterArray, SET_GES_MODE_REG_ARRAY_SIZE);
 }
@@ -353,7 +373,7 @@ static void paj7620_clear_gesture_interrupts(const struct device *dev)
 int paj7620_getWaveCount()
 {
   uint8_t waveCount = 0;
-  readRegister(PAJ7620_ADDR_WAVE_COUNT, 1, &waveCount);
+  //readRegister(PAJ7620_ADDR_WAVE_COUNT, 1, &waveCount);
   waveCount &= 0x0F;      // Count is [3:0] bits - values in 0..15
   return waveCount;
 }
@@ -383,12 +403,12 @@ static int paj7620_fwd_bkwd_gesture_check(const struct device *dev,
 	if (gesture_data == GES_FORWARD_FLAG)
 	{
 		k_msleep(data->gest_exit_time);
-		result = GES_FORWARD;
+		result = PAJ7620_GES_FORWARD;
 	}
 	else if (gesture_data == GES_BACKWARD_FLAG)
 	{
 		k_msleep(data->gest_exit_time);
-		result = GES_BACKWARD;
+		result = PAJ7620_GES_BACKWARD;
 	}
 
 	*return_gesture = result;
@@ -406,50 +426,50 @@ static int paj7620_read_gesture(const struct device *dev, enum paj7620_gesture *
 
 	if (ret) {
 		LOG_ERR("Failed to read gesture data");
-		*result = GES_NONE;
+		*result = PAJ7620_GES_NONE;
 		return -EIO;
 	}
 	else {
 		switch (gest_data_reg0) {
 		case GES_RIGHT_FLAG:
-			ret = paj7620_fwd_bkwd_gesture_check(dev, GES_RIGHT, result);
+			ret = paj7620_fwd_bkwd_gesture_check(dev, PAJ7620_GES_RIGHT, result);
 			break;
 
 		case GES_LEFT_FLAG:
-			ret = paj7620_fwd_bkwd_gesture_check(dev, GES_LEFT, result);
+			ret = paj7620_fwd_bkwd_gesture_check(dev, PAJ7620_GES_LEFT, result);
 			break;
 
 		case GES_UP_FLAG:
-			ret = paj7620_fwd_bkwd_gesture_check(dev, GES_UP, result);
+			ret = paj7620_fwd_bkwd_gesture_check(dev, PAJ7620_GES_UP, result);
 			break;
 
 		case GES_DOWN_FLAG:
-			ret = paj7620_fwd_bkwd_gesture_check(dev, GES_DOWN, result);
+			ret = paj7620_fwd_bkwd_gesture_check(dev, PAJ7620_GES_DOWN, result);
 			break;
 
 		case GES_FORWARD_FLAG:
 			k_msleep(data->gest_exit_time);
-			*result = GES_FORWARD;
+			*result = PAJ7620_GES_FORWARD;
 			break;
 
 		case GES_BACKWARD_FLAG:
 			k_msleep(data->gest_exit_time);
-			*result = GES_BACKWARD;
+			*result = PAJ7620_GES_BACKWARD;
 			break;
 
 		case GES_CLOCKWISE_FLAG:
-			*result = GES_CLOCKWISE;
+			*result = PAJ7620_GES_CLOCKWISE;
 			break;
 
 		case GES_ANTI_CLOCKWISE_FLAG:
-			*result = GES_ANTICLOCKWISE;
+			*result = PAJ7620_GES_ANTICLOCKWISE;
 			break;
 
 		default:
 			/* Bank 1 (Reg 0x44) has wave flag */
 			ret = paj7620_byte_read(dev, PAJ7620_REG_GES_RESULT_1, &gest_data_reg0);
 			if (ret == 0 && gest_data_reg1 == GES_WAVE_FLAG) {
-				*result = GES_WAVE;
+				*result = PAJ7620_GES_WAVE;
 			}
 			break;
 		}
@@ -768,9 +788,21 @@ static int paj7620_set_sampling_rate(const struct device *dev, const struct sens
 
 static int paj7620_sample_fetch(const struct device *dev, enum sensor_channel chan)
 {
-	int ret = 0;
+	struct paj7620_data *data = dev->data;
+	enum paj7620_gesture detected_gesture = PAJ7620_GES_NONE;
 
-	return ret;
+	if (chan != SENSOR_CHAN_ALL) {
+		return -ENOTSUP;
+	}
+
+	/* Fetch gesture data */
+	if (paj7620_read_gesture(dev, &detected_gesture)) {
+		return -EIO;
+	}
+
+	data->gesture = detected_gesture;
+
+	return 0;
 }
 
 static int paj7620_channel_get(const struct device *dev,
@@ -778,6 +810,18 @@ static int paj7620_channel_get(const struct device *dev,
 			       struct sensor_value *val)
 {
 	int ret = 0;
+	struct paj7620_data *data = dev->data;
+
+	switch ((uint32_t)chan) {
+		case SENSOR_CHAN_PAJ7620_GESTURES:
+			val->val1 = (int32_t)data->gesture;
+			val->val2 = 0;
+			break;
+		default:
+			LOG_ERR("Unsupported sensor channel");
+			ret = -ENOTSUP;
+			break;
+	}
 
 	return ret;
 }
@@ -788,14 +832,14 @@ static int paj7620_attr_set(const struct device *dev,
 			    const struct sensor_value *val)
 {
 	int ret = 0;
-	const struct paj7620_data *data = dev->data;
+	struct paj7620_data *data = dev->data;
 
 	if (chan != SENSOR_CHAN_ALL)
 	{
 		return -ENOTSUP;
 	}
 
-	switch (attr)
+	switch ((uint32_t)attr)
 	{
 	case SENSOR_ATTR_SAMPLING_FREQUENCY:
 		ret = paj7620_set_sampling_rate(dev, val);
@@ -833,24 +877,23 @@ static int paj7620_attr_set(const struct device *dev,
 static int paj7620_init(const struct device *dev)
 {
 	int ret = 0;
+	struct paj7620_data *data = dev->data;
+	const struct paj7620_config *config = dev->config;
 
-	const struct paj7620_data *data = dev->data;
+	if (!i2c_is_ready_dt(&config->i2c)) {
+		LOG_ERR("I2C bus device not ready");
+		return -ENODEV;
+	}
 
 	/* Reasonable timing delay values to make algorithm insensitive to
-	 *  hand entry and exit moves before and after detecting a gesture */
+	 * hand entry and exit moves before and after detecting a gesture */
 	data->gest_entry_time = PAJ7620_DEFAULT_GEST_ENTRY_TIME_MS;
 	data->gest_exit_time = PAJ7620_DEFAULT_GEST_EXIT_TIME_MS;
 
+	/* Wait 700s for sensor to stabilize */
+	k_usleep(700);
 
-	//wireHandle = chosenWireHandle;      // Save selected I2C bus for our use
-
-	k_usleep(700);	// Wait 700us for PAJ7620U2 to stabilize
-			// Reason: see v0.8 of 7620 documentation
-
-	printf("Initing the PAJ7620\n");
-
-	//wireHandle->begin();                // Start the I2C bus via wire library
-	//TODO: Change for zephyr is_i2c_dt_ready or sth like that
+	LOG_DBG("Initing the PAJ7620\n");
 
 	/* There's two register banks (0 & 1) to be selected between.
 	 * BANK0 is where most data collection operations happen, so it's default.
@@ -861,26 +904,35 @@ static int paj7620_init(const struct device *dev)
 	 * usually works, but as soon as you use an external power bus it often
 	 * fails to properly initialize and begin returns an error.
 	 */
-	//selectRegisterBank(BANK0);          // This is done twice on purpose
-	//selectRegisterBank(BANK0);          // Default operations on BANK0
+
+	/* Select bank 0 to be the default. We read two times on purpose, because
+	 * sometimes the PAJ7620 misses the first message as it just wakes up
+	 */
+	(void)paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
+	(void)paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
 
 	// TODO: Replace with reading the WHO_AM_I register (HW ID) and failing
 	// if not what expected
-	//if( !isPAJ7620UDevice() ) {
-	//return -EIO;                   // Return false - wrong device found
-	//}
 	if (!paj7620_is_hwId_correct(dev)) {
-		LOG_ERR("Invalid device. Hardware ID mismatch");
 		return -ENOTSUP;
 	}
 
-	//initializeDeviceSettings();         // Set registers up
+	ret = paj7620_init_device_settings(dev);
+	if (ret) {
+		LOG_ERR("Failed to initialize device registers");
+		return ret;
+	}
+
 	ret = paj7620_set_gesture_mode(dev);
+	if (ret) {
+		LOG_ERR("Failed to set Gesture mode");
+		return ret;
+	}
 
 	return 0;
 }
 
-static DEVICE_API(sensor, paj7620_driver_api) {
+static DEVICE_API(sensor, paj7620_driver_api) = {
 	.sample_fetch = paj7620_sample_fetch,
 	.channel_get = paj7620_channel_get,
 	.attr_set = paj7620_attr_set,

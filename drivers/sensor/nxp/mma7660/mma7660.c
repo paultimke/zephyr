@@ -369,7 +369,7 @@ static int mma7660_init(const struct device *dev)
 
 	printf("Initializing mma7660\n");
 
-	if (!device_is_ready(config->i2c.bus)) {
+	if (!i2c_is_ready_dt(&config->i2c)) {
 		LOG_ERR("I2C bus device not ready");
 		return -ENODEV;
 	}

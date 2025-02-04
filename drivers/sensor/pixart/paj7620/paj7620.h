@@ -37,6 +37,7 @@
 /** Device's hard coded Hardware ID values */
 #define PAJ7620_PART_ID_LSB              0x20
 #define PAJ7620_PART_ID_MSB              0x76
+#define PAJ7620_PART_ID                  ((PAJ7620_PART_ID_MSB << 8) | (PAJ7620_PART_ID_LSB & 0x00FF))
 
 /** Register bank select address */
 #define PAJ7620_REGISTER_BANK_SEL        0xEF  // W
@@ -45,18 +46,15 @@
 #define PAJ7620_BANK_0			 0x00
 #define PAJ7620_BANK_1                   0x01
 
-/** Suspend Control commands
-* Written to #PAJ7620_ADDR_SUSPEND_CMD */
+/** Suspend Control commands */
 #define PAJ7620_CMD_WAKEUP               0x01
 #define PAJ7620_CMD_SUSPEND              0x00
 
 /** Enable Control commands */
-/* Written to #PAJ7620_ADDR_OPERATION_ENABLE */
 #define PAJ7620_CMD_ENABLE               0x01 /* Enable to start reading */
 #define PAJ7620_CMD_DISABLE              0x00 /* Disable and stop reading */
 
 /** Sensor FPS mode values for R_IDLE_TIME
- * Written to #PAJ7620_ADDR_R_IDLE_TIME_0
  * \note These values come directly from PixArt contact/email
  */
 #define PAJ7620_NORMAL_SPEED             0xAC /* Normal speed 120 fps */
@@ -69,29 +67,28 @@
  * PAJ7620_REG_GES_RESULT_0 (all except wave flag)
  * PAJ7620_REG_GES_RESULT_1 (wave flag gesture)
  */
-#define GES_UP_FLAG                      0x01
-#define GES_DOWN_FLAG                    0x02
-#define GES_LEFT_FLAG                    0x04
-#define GES_RIGHT_FLAG                   0x08
-#define GES_FORWARD_FLAG                 0x10
-#define GES_BACKWARD_FLAG                0x20
-#define GES_CLOCKWISE_FLAG               0x40
-#define GES_ANTI_CLOCKWISE_FLAG          0x80
-#define GES_WAVE_FLAG                    0x01
+#define PAJ7620_GES_UP_FLAG		 0x01
+#define PAJ7620_GES_DOWN_FLAG		 0x02
+#define PAJ7620_GES_LEFT_FLAG            0x04
+#define PAJ7620_GES_RIGHT_FLAG           0x08
+#define PAJ7620_GES_FORWARD_FLAG         0x10
+#define PAJ7620_GES_BACKWARD_FLAG        0x20
+#define PAJ7620_GES_CLOCKWISE_FLAG	 0x40
+#define PAJ7620_GES_ANTI_CLOCKWISE_FLAG  0x80
+#define PAJ7620_GES_WAVE_FLAG		 0x01
 
 /** Return values for cursor interrupt/status for cursor mode */
-/*  Read from Bank 0, reg 0x44 */
-#define CUR_HAS_OBJECT                   0x04      // Bit 2 - 0000 0100
-#define CUR_NO_OBJECT                    0x80      // Bit 7 - 1000 0000
+#define PAJ7620_CUR_HAS_OBJECT		 0x04
+#define PAJ7620_CUR_NO_OBJECT		 0x80
 
 /** Values for Corners mode */
-#define GESTURE_RANGE_MAX          3712      /* Gesture range max value (experimental) */
-#define GESTURE_RANGE_MIN          0         /* Gesture range min value */
-#define GESTURE_RANGE_MID          ((GESTURE_RANGE_MAX - GESTURE_RANGE_MIN) / 2)
-#define CORNERS_BUFFER_WIDTH_PCT   0.20      /* 20% of range is "buffer"/"middle" */
-#define CORNERS_BUFFER_WIDTH       (int)((GESTURE_RANGE_MAX - GESTURE_RANGE_MIN) * CORNERS_BUFFER_WIDTH_PCT)
-#define CORNERS_BUFFER_LOWER       (int)(GESTURE_RANGE_MID - (CORNERS_BUFFER_WIDTH / 2))
-#define CORNERS_BUFFER_UPPER       (int)(GESTURE_RANGE_MID + (CORNERS_BUFFER_WIDTH / 2))
+#define PAJ7620_GESTURE_RANGE_MAX          3712      /* Gesture range max value (experimental) */
+#define PAJ7620_GESTURE_RANGE_MIN          0         /* Gesture range min value */
+#define PAJ7620_GESTURE_RANGE_MID          ((GESTURE_RANGE_MAX - GESTURE_RANGE_MIN) / 2)
+#define PAJ7620_CORNERS_BUFFER_WIDTH_PCT   0.20      /* 20% of range is "buffer"/"middle" */
+#define PAJ7620_CORNERS_BUFFER_WIDTH       (int)((GESTURE_RANGE_MAX - GESTURE_RANGE_MIN) * CORNERS_BUFFER_WIDTH_PCT)
+#define PAJ7620_CORNERS_BUFFER_LOWER       (int)(GESTURE_RANGE_MID - (CORNERS_BUFFER_WIDTH / 2))
+#define PAJ7620_CORNERS_BUFFER_UPPER       (int)(GESTURE_RANGE_MID + (CORNERS_BUFFER_WIDTH / 2))
 
 /** Gesture Entry/Exit default values in milliseconds */
 #define PAJ7620_DEFAULT_GEST_ENTRY_TIME_MS 0
@@ -250,23 +247,6 @@ const unsigned short setCursorModeRegisterArray[] = {
 enum paj7620_mem_bank {
 	PAJ7620_MEMBANK_0 = PAJ7620_BANK_0,
 	PAJ7620_MEMBANK_1 = PAJ7620_BANK_1
-};
-
-/** Used for reading the corners in corners mode and PIN mode
- * Note: Width of "middle" set by CORNERS_BUFFER_WIDTH_PCT value */
-// TODO: Check if it's possible to separate this enum into two
-enum paj7620_corner {
-	PAJ7620_CORNER_NONE = 0,      /* No object in view */
-	PAJ7620_CORNER_NE = 1,        /* Object in NE quadrant */
-	PAJ7620_CORNER_NW = 2,        /* Object in NW quadrant */
-	PAJ7620_CORNER_SW = 3,        /* Object in SW quadrant */
-	PAJ7620_CORNER_SE = 4,        /* Object in SE quadrant */
-	PAJ7620_CORNER_MIDDLE = 5,    /* Object in between quadrants */
-	PAJ7620_QUADRANT_NONE = 0,    /* No object in view */
-	PAJ7620_QUADRANT_I = 1,       /* Object in cartesian quadrant I (NE) */
-	PAJ7620_QUADRANT_II = 2,      /* Object in cartesian quadrant II (NW) */
-	PAJ7620_QUADRANT_III = 3,     /* Object in cartesian quadrant III (SW) */
-	PAJ7620_QUADRANT_IV = 4,      /* Object in cartesian quadrant IV (SE) */
 };
 
 struct paj7620_config {

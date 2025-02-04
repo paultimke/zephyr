@@ -34,13 +34,6 @@
 
 LOG_MODULE_REGISTER(PAJ7620, CONFIG_SENSOR_LOG_LEVEL);
 
-static int paj7620_burst_read(const struct device *dev, uint8_t reg, void *data, size_t length)
-{
-	const struct paj7620_config *config = dev->config;
-
-	return i2c_burst_read_dt(&config->i2c, reg, data, length);
-}
-
 static int paj7620_byte_read(const struct device *dev, uint8_t reg, uint8_t *byte)
 {
 	const struct paj7620_config *config = dev->config;
@@ -61,7 +54,7 @@ static int paj7620_select_register_bank(const struct device *dev, enum paj7620_m
 
 	if (bank > PAJ7620_MEMBANK_1) {
 		LOG_ERR("Unexistent memory bank %d", (int) bank);
-		return -ENOTSUP;
+		return -EINVAL;
 	}
 
 	ret = paj7620_byte_write(dev, PAJ7620_REGISTER_BANK_SEL, (int)bank);
@@ -73,9 +66,7 @@ static int paj7620_select_register_bank(const struct device *dev, enum paj7620_m
 	return 0;
 }
 
-/* TODO: Change to just return (as param) hw id, and then verify that on
- * the init function */
-static uint8_t paj7620_is_hwId_correct(const struct device *dev)
+static int paj7620_get_hwId(const struct device *dev, uint16_t *result)
 {
 	uint8_t ret = 0;
 	uint8_t hwId[2] = {0, 0};
@@ -83,44 +74,22 @@ static uint8_t paj7620_is_hwId_correct(const struct device *dev)
 	/* Part ID is stored in bank 0 */
 	ret = paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
 	if (ret) {
-		LOG_ERR("Failed to select register bank");
-		return 0;
+		return -EIO;
 	}
 
 	ret = paj7620_byte_read(dev, PAJ7620_REG_PART_ID_0, &hwId[0]);
 	ret += paj7620_byte_read(dev, PAJ7620_REG_PART_ID_1, &hwId[1]);
 	if (ret) {
 		LOG_ERR("Failed to read hardware ID");
-		return 0;
+		return -EIO;
 	}
 
-	/* Verify part ID is corect for PAJ7620U2 */
-	if ((hwId[0] != PAJ7620_PART_ID_LSB ) || (hwId[1] != PAJ7620_PART_ID_MSB)) {
-		uint16_t id = (hwId[1] << 8 ) | (hwId[0] & 0x00FF);
-		LOG_ERR("Hardware ID %d does not match for PAJ7620", id);
-		return 0;
-	}
+	*result = (hwId[1] << 8 ) | (hwId[0] & 0x00FF);
+	LOG_DBG("Obtained hardware ID 0x%04x", *result);
 
-	LOG_DBG("Hardware ID correct. Read 0x%02x 0x%02x", hwId[0], hwId[1]);
-	LOG_DBG("This is 0x%04x", (hwId[1] << 8) | (hwId[0] & 0x00FF));
-	return 1;
+	return 0;
 }
 
-
-/**
- * Writes an array of values to the device memory
- *
- * \par
- * Writes over I2C to the memory banks a set of default values for operation.
- * The values are taken from the PAJ7620U2 v0.8 documentation and encoded
- * in the \link initRegisterArray \endlink from the driver's header file
- *
- * \note Expects array[] to be stored in PROGMEM if it is available on your microcontroller
- *
- * \param array : array of const unsigned shorts - first byte is address, second byte is data
- * \param arraySize : quantity of elements in array to write
- * \return none
- */
 static int paj7620_write_register_array(const struct device *dev,
 		                        const uint16_t *array,
 					size_t array_size)
@@ -135,8 +104,6 @@ static int paj7620_write_register_array(const struct device *dev,
 		word = array[i];
 		reg_addr = (word & 0xFF00) >> 8;
 		value = (word & 0x00FF);
-
-		LOG_DBG("Writing to reg 0x%02x value 0x%02x", reg_addr, value);
 
 		ret = paj7620_byte_write(dev, reg_addr, value);
 		if (ret) {
@@ -153,236 +120,28 @@ static int paj7620_write_register_array(const struct device *dev,
 
 /**
  * Initializes registers for device to default values
- * Writes over I2C to the memory banks a set of default values for operation.
  * The values are taken from the PAJ7620U2 v0.8 documentation and encoded
- * in the \link initRegisterArray \endlink from the driver's header file
  */
 static int paj7620_init_device_settings(const struct device *dev)
 {
-	LOG_DBG("Initing device settings");
 	return paj7620_write_register_array(dev, initRegisterArray, INIT_REG_ARRAY_SIZE);
 }
 
 
 /**
- * Puts device into Gesture mode
  * Initializes registers for Gesture mode and enables only the gesture interrupts
  */
 static int paj7620_set_gesture_mode(const struct device *dev)
 {
-	LOG_DBG("Setting gesture mode");
 	return paj7620_write_register_array(dev,
 			setGestureModeRegisterArray, SET_GES_MODE_REG_ARRAY_SIZE);
 }
 
-
-/**
- * Puts device into Cursor mode
- * Initializes registers for Cursor mode and enables only the cursor interrupts
- */
-static int paj7620_set_cursor_mode(const struct device *dev)
-{
-	return paj7620_write_register_array(dev,
-			setCursorModeRegisterArray, SET_CURSOR_MODE_REG_ARRAY_SIZE);
-}
-
-
-/**
- * Gets cursor object's current X location
- *
- * \note Only works in cursor mode
- * \param none
- * \return int : X coordinate of cursor
- */
-static int paj7620_getCursorX(const struct device *dev, int32_t *result)
-{
-	int ret = 0;
-	int32_t tmp = 0;
-	uint8_t cursor_x[2] = {0x00, 0x00};
-
-	ret = paj7620_byte_read(dev, PAJ7620_REG_CURSOR_X_LOW, &cursor_x[0]);
-	ret = paj7620_byte_read(dev, PAJ7620_REG_CURSOR_X_HIGH, &cursor_x[1]);
-	if (ret) {
-		return -EIO;
-	}
-
-	cursor_x[1] &= 0x0F;      // Mask off high bits (unused)
-	tmp |= cursor_x[1];
-	tmp = tmp << 8;
-	tmp |= cursor_x[0];
-
-	*result = tmp;
-
-	return 0;
-}
-
-
-/**
- * Gets cursor object's current Y location
- *
- * \note Only works in cursor mode
- * \param none
- * \return int : Y coordinate of cursor
- */
-int paj7620_getCursorY()
-{
-	/*
-  int result = 0;
-  uint8_t data0 = 0x00;
-  uint8_t data1 = 0x00;
-
-  readRegister(PAJ7620_ADDR_CURSOR_Y_LOW, 1, &data0);
-  readRegister(PAJ7620_ADDR_CURSOR_Y_HIGH, 1, &data1);
-  data1 &= 0x0F;      // Mask off high bits (unused)
-  result |= data1;
-  result = result << 8;
-  result |= data0;
-
-  return result;
-  */
-}
-
-
-/**
- * Returns whether an object is in view as a cursor
- *
- * \note Only works in cursor mode
- * \param none
- * \return bool : True if object in view, False if no object in view
- */
-bool paj7620_isCursorInView()
-{
-	/*
-  bool result = false;
-  uint8_t data = 0x00;
-  readRegister(PAJ7620_ADDR_CURSOR_INT, 1, &data);
-  switch(data)
-  {
-    case CUR_NO_OBJECT:   result = false;   break;
-    case CUR_HAS_OBJECT:  result = true;    break;
-    default:              result = false;   break;
-  }
-  return result;
-  */
-}
-
-
-/**
- * Inverts the X (horizontal) axis
- *
- * \par
- * Allows you to choose the orientation of your coordinate system.
- * In all modes, the X axis is inverted. Left becomes Right, etc.
- * For cursor mode, the X values will flip
- *
- * \param none
- * \return none
- */
-void paj7620_invertXAxis()
-{
-	/*
-  uint8_t data = 0x00;
-  selectRegisterBank(BANK1);
-  readRegister(PAJ7620_ADDR_LENS_ORIENTATION, 1, &data);
-  data ^= 1UL << 0;               // Bit[0] controls X axis
-  writeRegister(PAJ7620_ADDR_LENS_ORIENTATION, data);
-  selectRegisterBank(BANK0);
-  */
-}
-
-
-/**
- * Inverts the Y (vertical) axis
- *
- * \par
- * Allows you to choose the orientation of your coordinate system.
- * In all modes, the Y axis is inverted. Up becomes Down, etc.
- * For cursor mode, the Y values will flip
- *
- * \param none
- * \return none
- */
-void paj7620_invertYAxis()
-{
-	/*
-  uint8_t data = 0x00;
-  selectRegisterBank(BANK1);
-  readRegister(PAJ7620_ADDR_LENS_ORIENTATION, 1, &data);
-  data ^= 1UL << 1;                 // Bit[1] controls Y axis
-  writeRegister(PAJ7620_ADDR_LENS_ORIENTATION, data);
-  selectRegisterBank(BANK0);
-  */
-}
-
-
-/**
- * Disables sensor for reading & interrupts
- * \note This is the light disable state, not the full I2C shutdown state
- * \param none
- * \return none
- */
-void paj7620_disable()
-{
-	/*
-  selectRegisterBank(BANK1);
-  writeRegister(PAJ7620_ADDR_OPERATION_ENABLE, PAJ7620_DISABLE);
-  selectRegisterBank(BANK0);
-  */
-}
-
-
-/**
- * Enables sensor for reading & interrupts
- *
- *  \param none
- *  \return none
- */
-void paj7620_enable()
-{
-	/*
-  selectRegisterBank(BANK1);
-  writeRegister(PAJ7620_ADDR_OPERATION_ENABLE, PAJ7620_ENABLE);
-  selectRegisterBank(BANK0);
-  */
-}
-
-/**
- * Clear current gesture interrupt vectors without returning gesture value
- * Note: The gesture interrupt vectors are reset in hardware after any reads
- */
-static void paj7620_clear_gesture_interrupts(const struct device *dev)
-{
-	int ret = 0;
-	uint8_t gesture_data[2];
-
-	ret = paj7620_byte_read(dev, PAJ7620_REG_GES_RESULT_0, &gesture_data[0]);
-	ret += paj7620_byte_read(dev, PAJ7620_REG_GES_RESULT_1, &gesture_data[1]);
-	if (ret) {
-		LOG_ERR("Failed to clear gesture interrupts");
-	}
-
-	return;
-}
-
-
-/**
- * Get current count of waves by user
- * \param none
- * \return int : current count of "waves" over the sensor
- */
-int paj7620_getWaveCount()
-{
-  uint8_t waveCount = 0;
-  //readRegister(PAJ7620_ADDR_WAVE_COUNT, 1, &waveCount);
-  waveCount &= 0x0F;      // Count is [3:0] bits - values in 0..15
-  return waveCount;
-}
-
-
 /**
  * Double check to see if user is executing a Z-axis gesture
- * This is where the gesture entry- and exit-time delays are executed
- * to buffer high speed polling & return against human gesture speeds.
+ * Entry- and exit-time delays are executed to give time for the sensor
+ * to detect the second, more complicated gesture (as lateral gestures
+ * are always detected first).
  */
 static int paj7620_fwd_bkwd_gesture_check(const struct device *dev,
 		                          enum paj7620_gesture initial_gesture,
@@ -431,44 +190,44 @@ static int paj7620_read_gesture(const struct device *dev, enum paj7620_gesture *
 	}
 	else {
 		switch (gest_data_reg0) {
-		case GES_RIGHT_FLAG:
+		case PAJ7620_GES_RIGHT_FLAG:
 			ret = paj7620_fwd_bkwd_gesture_check(dev, PAJ7620_GES_RIGHT, result);
 			break;
 
-		case GES_LEFT_FLAG:
+		case PAJ7620_GES_LEFT_FLAG:
 			ret = paj7620_fwd_bkwd_gesture_check(dev, PAJ7620_GES_LEFT, result);
 			break;
 
-		case GES_UP_FLAG:
+		case PAJ7620_GES_UP_FLAG:
 			ret = paj7620_fwd_bkwd_gesture_check(dev, PAJ7620_GES_UP, result);
 			break;
 
-		case GES_DOWN_FLAG:
+		case PAJ7620_GES_DOWN_FLAG:
 			ret = paj7620_fwd_bkwd_gesture_check(dev, PAJ7620_GES_DOWN, result);
 			break;
 
-		case GES_FORWARD_FLAG:
+		case PAJ7620_GES_FORWARD_FLAG:
 			k_msleep(data->gest_exit_time);
 			*result = PAJ7620_GES_FORWARD;
 			break;
 
-		case GES_BACKWARD_FLAG:
+		case PAJ7620_GES_BACKWARD_FLAG:
 			k_msleep(data->gest_exit_time);
 			*result = PAJ7620_GES_BACKWARD;
 			break;
 
-		case GES_CLOCKWISE_FLAG:
+		case PAJ7620_GES_CLOCKWISE_FLAG:
 			*result = PAJ7620_GES_CLOCKWISE;
 			break;
 
-		case GES_ANTI_CLOCKWISE_FLAG:
+		case PAJ7620_GES_ANTI_CLOCKWISE_FLAG:
 			*result = PAJ7620_GES_ANTICLOCKWISE;
 			break;
 
 		default:
 			/* Bank 1 (Reg 0x44) has wave flag */
 			ret = paj7620_byte_read(dev, PAJ7620_REG_GES_RESULT_1, &gest_data_reg0);
-			if (ret == 0 && gest_data_reg1 == GES_WAVE_FLAG) {
+			if (ret == 0 && gest_data_reg1 == PAJ7620_GES_WAVE_FLAG) {
 				*result = PAJ7620_GES_WAVE;
 			}
 			break;
@@ -477,286 +236,6 @@ static int paj7620_read_gesture(const struct device *dev, enum paj7620_gesture *
 
 	return ret;
 }
-
-
-/**
- * Read object's "brightness"
- * Objects in view have their IR reflection measured. This interface returns a
- * measure of this brightness from 0..255
- */
-static int paj7620_get_object_brightness(const struct device *dev, uint8_t *result)
-{
-	uint8_t brightness = 0x00;
-
-	if (paj7620_byte_read(dev, PAJ7620_REG_OBJECT_BRIGHTNESS, &brightness)) {
-		return -EIO;
-	}
-
-	*result = brightness;
-	return 0;
-}
-
-
-/**
- * Read object's size (in pixels)
- * The sensor has a 30x30 IR LED array. This interface returns a count of
- *  how many pixels are part of the object in view being tracked.
- */
-/*
-int paj7620_getObjectSize()
-{
-  uint8_t data0, data1 = 0x00;
-  int result = 0;
-  readRegister(PAJ7620_ADDR_OBJECT_SIZE_LSB, 1, &data0);
-  readRegister(PAJ7620_ADDR_OBJECT_SIZE_MSB, 1, &data1);
-  result = data1;
-  result = result << 8;
-  result |= data0;
-  return result;
-}
-*/
-
-
-/**
- * Get how long since the object left the view in gesture mode
- *
- * \par
- * When an object has left the sensor's view, this register starts counting up.
- *  It's counting in ticks, roughly one per 7.2ms. It maxes out at 255, which
- *  happens at about 1830ms
- * \return int : ticks value 0..255
- */
-/*
-int paj7620_getNoObjectCount()
-{
-  uint8_t data0 = 0x00;
-  readRegister(PAJ7620_ADDR_NO_OBJECT_COUNT, 1, &data0);
-  return (int)data0;
-}
-*/
-
-
-/**
- * Get how long no motion has been seen in gesture mode
- *
- * \par
- * This counts how long it has been since motions has occurred in front of the sensor.
- * This counts even if there's an object in view when it isn't moving.
- * Eratta: This *should* return 0..255, but seems to stop at 12.
- * Each "count" is probably 7.2ms, but it's been tough to figure out.
- * \return int : ticks value 0..12
- */
-/*
-int paj7620_getNoMotionCount()
-{
-  uint8_t data0 = 0x00;
-  readRegister(PAJ7620_ADDR_NO_MOTION_COUNT, 1, &data0);
-  return (int)data0;
-}
-*/
-
-
-/**
- * Gets Gesture object's current X location
- *
- * \note Only works in gesture mode - default coordinates are 0 on right
- * \note Range seems to be 0..3712 in default gesture mode
- * \param none
- * \return int : X coordinate of cursor
- */
-/*
-int paj7620_getObjectCenterX()
-{
-  int result = 0;
-  uint8_t data0 = 0x00;
-  uint8_t data1 = 0x00;
-
-  readRegister(PAJ7620_ADDR_OBJECT_CENTER_X_LSB, 1, &data0);
-  readRegister(PAJ7620_ADDR_OBJECT_CENTER_X_MSB, 1, &data1);
-  data1 &= 0x1F;      // Mask off high bits (unused)
-  result |= data1;
-  result = result << 8;
-  result |= data0;
-
-  return result;
-}
-*/
-
-
-/**
- * Gets Gesture object's current Y location
- *
- * \note Only works in gesture mode - default coordinates are 0 on top
- * \note Range seems to be 0..3712 in default gesture mode
- * \param none
- * \return int : Y coordinate of cursor
- */
-/*
-int paj7620_getObjectCenterY()
-{
-  int result = 0;
-  uint8_t data0 = 0x00;
-  uint8_t data1 = 0x00;
-
-  readRegister(PAJ7620_ADDR_OBJECT_CENTER_Y_LSB, 1, &data0);
-  readRegister(PAJ7620_ADDR_OBJECT_CENTER_Y_MSB, 1, &data1);
-  data1 &= 0x1F;      // Mask off high bits (unused)
-  result |= data1;
-  result = result << 8;
-  result |= data0;
-
-  return result;
-}
-*/
-
-
-/**
- * Gets object's current X velocity's raw value
- *
- * \note Range seems to be -63..63
- * \param none
- * \return int : X velocity -63..63
- */
-/*
-int paj7620_getObjectVelocityX_raw()
-{
-  int result = 0;
-  uint8_t data0 = 0x00;
-  uint8_t data1 = 0x00;
-
-  readRegister(PAJ7620_ADDR_OBJECT_VEL_X_LSB, 1, &data0);
-  readRegister(PAJ7620_ADDR_OBJECT_VEL_X_MSB, 1, &data1);
-
-  data0 &= 0x3F;        // Yup, see wiki for reason
-  result = data0;
-  if(data1) { result *= -1; }
-
-  return result;
-}
-*/
-
-
-/**
- * Gets object's current Y velocity's raw value
- *
- * \note Range seems to be -63..63
- * \param none
- * \return int : Y velocity -63..63
- */
-/*
-int paj7620_getObjectVelocityY_raw()
-{
-  int result = 0;
-  uint8_t data0 = 0x00;
-  uint8_t data1 = 0x00;
-
-  readRegister(PAJ7620_ADDR_OBJECT_VEL_Y_LSB, 1, &data0);
-  readRegister(PAJ7620_ADDR_OBJECT_VEL_Y_MSB, 1, &data1);
-  data0 &= 0x3F;        // Yup, see wiki for reason
-  result = data0;
-  if(data1) { result *= -1; }
-
-  return result;
-}
-*/
-
-
-/**
- * Gets object's current X velocity's value
- *
- * \par
- * Value filtered to zero if object not in view
- * \note Range seems to be -63..63
- * \param none
- * \return int : X velocity -63..63
- */
-/*
-int paj7620_getObjectVelocityX()
-{
-  if(!isObjectInView()) {
-    return 0;
-  } else {
-    return getObjectVelocityX_raw();
-  }
-}
-*/
-
-
-/**
- * Gets object's current Y velocity's value
- *
- * \par
- * Value filtered to zero if object not in view
- * \note Range seems to be -63..63
- * \param none
- * \return int : Y velocity -63..63
- */
-/*
-int paj7620_getObjectVelocityY()
-{
-  if(!isObjectInView()) {
-    return 0;
-  } else {
-    return getObjectVelocityY_raw();
-  }
-}
-*/
-
-
-/**
- * Gets whether an object is in view or not
- *
- * \param none
- * \return bool : true if object in view
- */
-/*
-bool paj7620_isObjectInView()
-{
-  if(getNoObjectCount())
-  {
-    return false;
-  }
-  return true;
-}
-*/
-
-
-/**
- * Gets which quadrant an object is in
- *
- * \param none
- * \return paj7660_corner : [NW, NW, SW, SE] quadrants, middle/buffer, NONE for no object in view
- */
-/*
-paj7620_corner paj7620_getpaj7660_corner()
-{
-  paj7660_corner ret = CORNER_NONE;
-  int object_x, object_y = 0;
-
-  if( !isObjectInView() ) {   // Bail if no object in view
-    return CORNER_NONE;
-  }
-
-  object_x = getObjectCenterX();
-  object_y = getObjectCenterY();
-
-  if( object_x < CORNERS_BUFFER_LOWER && object_y < CORNERS_BUFFER_LOWER ) {
-    return CORNER_NE;
-  }
-  else if( object_x > CORNERS_BUFFER_UPPER && object_y < CORNERS_BUFFER_LOWER ) {
-    return CORNER_NW;
-  }
-  else if( object_x > CORNERS_BUFFER_UPPER && object_y > CORNERS_BUFFER_UPPER ) {
-    return CORNER_SW;
-  }
-  else if( object_x < CORNERS_BUFFER_LOWER && object_y > CORNERS_BUFFER_UPPER ) {
-    return CORNER_SE;
-  }
-  else {
-    return CORNER_MIDDLE;     // Is in view, but not fully in a corner yet
-  }
-}
-*/
 
 static int paj7620_set_sampling_rate(const struct device *dev, const struct sensor_value *val)
 {
@@ -782,6 +261,8 @@ static int paj7620_set_sampling_rate(const struct device *dev, const struct sens
 		LOG_ERR("Failed to set sample rate");
 		return -EIO;
 	}
+
+	LOG_DBG("Sample rate set to %s mode", fps == PAJ7620_GAME_SPEED? "game" : "normal");
 
 	return 0;
 }
@@ -860,25 +341,14 @@ static int paj7620_attr_set(const struct device *dev,
 	return ret;
 }
 
-
-/**
- * PAJ7620 device initialization and I2C connect on specified Wire bus
- *
- * Override version:
- * \par
- * Takes a TwoWire pointer allowing the user to pass
- *    in a specified I2C bus for devices using alternatives to bus 0 such
- *    as: begin(&Wire1) or begin(&Wire2)
- *
- * \param chosenWireHandle A pointer to the Wire handle that should be
- *   used to communicate with the PAJ7620
- * \return error code: 0 (false); success: return 1 (true)
- */
 static int paj7620_init(const struct device *dev)
 {
 	int ret = 0;
+	uint16_t hwID = 0x00;
 	struct paj7620_data *data = dev->data;
 	const struct paj7620_config *config = dev->config;
+
+	LOG_DBG("Initing the PAJ7620\n");
 
 	if (!i2c_is_ready_dt(&config->i2c)) {
 		LOG_ERR("I2C bus device not ready");
@@ -890,33 +360,24 @@ static int paj7620_init(const struct device *dev)
 	data->gest_entry_time = PAJ7620_DEFAULT_GEST_ENTRY_TIME_MS;
 	data->gest_exit_time = PAJ7620_DEFAULT_GEST_EXIT_TIME_MS;
 
-	/* Wait 700s for sensor to stabilize */
-	k_usleep(700);
-
-	LOG_DBG("Initing the PAJ7620\n");
-
-	/* There's two register banks (0 & 1) to be selected between.
-	 * BANK0 is where most data collection operations happen, so it's default.
-	 * Selecting the bank is done here twice for a reason. When the 7620 turns
-	 * on, the I2C bus is sleeping. When you first read/write to the bus
-	 * the 7620 wakes up, but it sometimes misses that first message.
-	 * Running the 7620 on an arduino with the USB power, a single call here
-	 * usually works, but as soon as you use an external power bus it often
-	 * fails to properly initialize and begin returns an error.
-	 */
-
 	/* Select bank 0 to be the default. We read two times on purpose, because
 	 * sometimes the PAJ7620 misses the first message as it just wakes up
 	 */
 	(void)paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
 	(void)paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
 
-	// TODO: Replace with reading the WHO_AM_I register (HW ID) and failing
-	// if not what expected
-	if (!paj7620_is_hwId_correct(dev)) {
+	/** Verify this is not some other sensor with the same address */
+	ret = paj7620_get_hwId(dev, &hwID);
+	if (ret) {
+		return ret;
+	}
+
+	if (hwID != PAJ7620_PART_ID) {
+		LOG_ERR("Hardware ID %d does not match for PAJ7620", hwID);
 		return -ENOTSUP;
 	}
 
+	/** Initialize settings and set to default gesture mode */
 	ret = paj7620_init_device_settings(dev);
 	if (ret) {
 		LOG_ERR("Failed to initialize device registers");

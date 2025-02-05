@@ -106,53 +106,30 @@ static int paj7620_get_hwId(const struct device *dev, uint16_t *result)
 	return 0;
 }
 
-static int paj7620_write_register_array(const struct device *dev,
-		                        const uint8_t array[][2],
-					size_t array_size)
+static int paj7620_init_device_settings(const struct device *dev)
 {
 	int ret = 0;
 	uint8_t reg_addr = 0;
 	uint8_t value = 0;
 
-	for (size_t i = 0; i < array_size; i++) {
-
-		reg_addr = array[i][0];
-		value = array[i][1];
-
-		ret = paj7620_byte_write(dev, reg_addr, value);
-		if (ret) {
-			return -EIO;
-		}
-
-		k_usleep(100);
-	}
-
-	// Go back to select bank 0
-	return paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
-}
-
-static int paj7620_init_device_settings(const struct device *dev)
-{
 	/**
 	 * Initializes registers with default values according to section 8.1
 	 * from Datasheet v1.5:
 	 * https://files.seeedstudio.com/wiki/Grove_Gesture_V_1.0/res/PAJ7620U2_DS_v1.5_05012022_Confidential.pdf
 	 */
-	return paj7620_write_register_array(dev,
-			                    initial_register_array,
-			                    ARRAY_SIZE(initial_register_array));
-}
 
-static int paj7620_set_gesture_mode(const struct device *dev)
-{
-	/**
-	 * Initializes registers with values needed for Gesture mode according
-	 * to section 8.5 from Datasheet v1.5:
-	 * https://files.seeedstudio.com/wiki/Grove_Gesture_V_1.0/res/PAJ7620U2_DS_v1.5_05012022_Confidential.pdf
-	 */
-	return paj7620_write_register_array(dev,
-			                    change_to_gesture_register_array,
-					    ARRAY_SIZE(change_to_gesture_register_array));
+	for (size_t i = 0; i < ARRAY_SIZE(initial_register_array); i++) {
+
+		reg_addr = initial_register_array[i][0];
+		value = initial_register_array[i][1];
+
+		ret = paj7620_byte_write(dev, reg_addr, value);
+		if (ret) {
+			return -EIO;
+		}
+	}
+
+	return 0;
 }
 
 static int paj7620_fwd_bkwd_gesture_check(const struct device *dev,
@@ -373,8 +350,6 @@ static int paj7620_init(const struct device *dev)
 	struct paj7620_data *data = dev->data;
 	const struct paj7620_config *config = dev->config;
 
-	LOG_DBG("Initing the PAJ7620\n");
-
 	if (!i2c_is_ready_dt(&config->i2c)) {
 		LOG_ERR("I2C bus device not ready");
 		return -ENODEV;
@@ -404,16 +379,10 @@ static int paj7620_init(const struct device *dev)
 		return -ENOTSUP;
 	}
 
-	/** Initialize settings and set to default gesture mode */
+	/** Initialize settings (it defaults to gesture mode) */
 	ret = paj7620_init_device_settings(dev);
 	if (ret) {
 		LOG_ERR("Failed to initialize device registers");
-		return ret;
-	}
-
-	ret = paj7620_set_gesture_mode(dev);
-	if (ret) {
-		LOG_ERR("Failed to set Gesture mode");
 		return ret;
 	}
 

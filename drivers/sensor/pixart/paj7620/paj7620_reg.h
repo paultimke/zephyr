@@ -18,12 +18,12 @@
  */
 
 /**
- * BANK 0 REGISTERS ADDRESSES
+ * BANK 0 REGISTER ADDRESSES
  */
 
 /* Chip / Version ID */
-#define PAJ7620_REG_PART_ID_LSB 0x20
-#define PAJ7620_REG_PART_ID_MSB 0x76
+#define PAJ7620_REG_PART_ID_LSB 0x00
+#define PAJ7620_REG_PART_ID_MSB 0x01
 
 /** Register bank select */
 #define PAJ7620_REG_BANK_SEL 0xEF
@@ -66,8 +66,8 @@
 
 #define PAJ7620_MASK_INT_FLAG_2_GES_WAVE             BIT(0)
 
-#define PAJ7620_MASK_ALL_GESTURE_INTS_ENABLE  0xFF
-#define PAJ7620_MASK_ALL_GESTURE_INTS_DISABLE 0x00
+#define PAJ7620_MASK_ALL_GESTURE_INTS_ENABLE         0xFF
+#define PAJ7620_MASK_ALL_GESTURE_INTS_DISABLE        0x00
 
 /**
  * BANK 1 REGISTER ADDRESSES
@@ -77,9 +77,9 @@
 
 /**
  * INITIALIZATION ARRAYS
- * The following 'initial_register_array' and 'change_to_gesture_register_array'
- * are taken from Section 8 (Firmware Guides) of the PAJ7620 datasheet v1.5.
- * They encode pairs of register addresses and values for those registers
+ * The following 'initial_register_array' is taken from Section 8 (Firmware
+ * Guides) of the PAJ7620 datasheet v1.5.
+ * It encodes pairs of register addresses and values for those registers
  * needed to initialize the sensor or change its operation mode
  *
  * Reference:
@@ -140,38 +140,6 @@ const uint8_t initial_register_array[][2] = {
 	{0x74, 0x00}, /* Initialize to gesture mode */
 	{0x77, 0x01},
 	{0xEF, 0x00}, /* Go back to reselect memory bank 0 */
-	{0x41, 0xFF}, /* Re-enable interrupts for first 8 gestures */
-	{0x42, 0x01}  /* Re-enable interrupts for wave gesture */
-};
-
-const uint8_t change_to_gesture_register_array[][2] = {
-	{0xEF, 0x00}, /* Select memory bank 0 */
-	{0x41, 0x00}, /* Disable interrupts for first 8 gestures */
-	{0x42, 0x00}, /* Disable wave and other interrupt(s) */
-	{0x48, 0x3C},
-	{0x49, 0x00},
-	{0x51, 0x10},
-	{0x83, 0x20},
-	{0x9f, 0xf9},
-	{0xEF, 0x01}, /* Select memory bank 1 */
-	{0x01, 0x1E},
-	{0x02, 0x0F},
-	{0x03, 0x10},
-	{0x04, 0x02},
-	{0x41, 0x40},
-	{0x43, 0x30},
-	{0x65, 0x96}, /* Set sensor fps to 'normal' mode */
-	{0x66, 0x00},
-	{0x67, 0x97},
-	{0x68, 0x01},
-	{0x69, 0xCD},
-	{0x6A, 0x01},
-	{0x6b, 0xb0},
-	{0x6c, 0x04},
-	{0x6D, 0x2C},
-	{0x6E, 0x01},
-	{0x74, 0x00}, /* Set gesture mode */
-	{0xEF, 0x00}, /* Go back to select memory bank 0 */
 	{0x41, 0xFF}, /* Re-enable interrupts for first 8 gestures */
 	{0x42, 0x01}  /* Re-enable interrupts for wave gesture */
 };

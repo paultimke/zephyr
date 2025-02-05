@@ -27,21 +27,29 @@
 #endif
 
 /** TODO:
+ * Properties:
+ * Standby modes: Normal, Weak standby, Deep standby (configure auto wakeup / auto standby)
+ * Operation mode: Gesture / Proximity / Cursor modes
+ *
+ * Kconfig:
  * Enable Z-Axis gestures (Backward, Forward) as KConfig option - disabled by default
  * Enable Circular gestures (Clockwise, Anticlockwise, Wave) as Kconfig option - disabled by default
- * Another Kconfig option -> Sensor is Gesture mode / Sensor is Cursor Mode
+ *
+ * Device tree:
+ * Device tree prop -> Select INT pin gpio
+ * Device tree prop -> Configure INT pin as active high / active low
  */
 
 LOG_MODULE_REGISTER(PAJ7620, CONFIG_SENSOR_LOG_LEVEL);
 
-static int paj7620_byte_read(const struct device *dev, uint8_t reg, uint8_t *byte)
+int paj7620_byte_read(const struct device *dev, uint8_t reg, uint8_t *byte)
 {
 	const struct paj7620_config *config = dev->config;
 
 	return i2c_reg_read_byte_dt(&config->i2c, reg, byte);
 }
 
-static int paj7620_byte_write(const struct device *dev, uint8_t reg, uint8_t byte)
+int paj7620_byte_write(const struct device *dev, uint8_t reg, uint8_t byte)
 {
 	const struct paj7620_config *config = dev->config;
 
@@ -51,15 +59,23 @@ static int paj7620_byte_write(const struct device *dev, uint8_t reg, uint8_t byt
 static int paj7620_select_register_bank(const struct device *dev, enum paj7620_mem_bank bank)
 {
 	int ret = 0;
+	uint8_t bank_selection;
 
-	if (bank > PAJ7620_MEMBANK_1) {
-		LOG_ERR("Unexistent memory bank %d", (int) bank);
+	switch (bank) {
+	case PAJ7620_MEMBANK_0:
+		bank_selection = PAJ7620_VAL_BANK_SEL_BANK_0;
+		break;
+	case PAJ7620_MEMBANK_1:
+		bank_selection = PAJ7620_VAL_BANK_SEL_BANK_1;
+		break;
+	default:
+		LOG_ERR("Nonexistent memory bank %d", (int)bank);
 		return -EINVAL;
 	}
 
-	ret = paj7620_byte_write(dev, PAJ7620_REGISTER_BANK_SEL, (int)bank);
+	ret = paj7620_byte_write(dev, PAJ7620_REG_BANK_SEL, bank_selection);
 	if (ret) {
-		LOG_ERR("Failed to set memory bank %d", (int) bank);
+		LOG_ERR("Failed to change memory bank");
 		return -EIO;
 	}
 
@@ -77,8 +93,8 @@ static int paj7620_get_hwId(const struct device *dev, uint16_t *result)
 		return -EIO;
 	}
 
-	ret = paj7620_byte_read(dev, PAJ7620_REG_PART_ID_0, &hwId[0]);
-	ret += paj7620_byte_read(dev, PAJ7620_REG_PART_ID_1, &hwId[1]);
+	ret = paj7620_byte_read(dev, PAJ7620_REG_PART_ID_LSB, &hwId[0]);
+	ret += paj7620_byte_read(dev, PAJ7620_REG_PART_ID_MSB, &hwId[1]);
 	if (ret) {
 		LOG_ERR("Failed to read hardware ID");
 		return -EIO;
@@ -91,19 +107,17 @@ static int paj7620_get_hwId(const struct device *dev, uint16_t *result)
 }
 
 static int paj7620_write_register_array(const struct device *dev,
-		                        const uint16_t *array,
+		                        const uint8_t array[][2],
 					size_t array_size)
 {
 	int ret = 0;
-	uint16_t word = 0;
-	uint16_t reg_addr = 0;
-	uint16_t value = 0;
+	uint8_t reg_addr = 0;
+	uint8_t value = 0;
 
 	for (size_t i = 0; i < array_size; i++) {
 
-		word = array[i];
-		reg_addr = (word & 0xFF00) >> 8;
-		value = (word & 0x00FF);
+		reg_addr = array[i][0];
+		value = array[i][1];
 
 		ret = paj7620_byte_write(dev, reg_addr, value);
 		if (ret) {
@@ -117,32 +131,30 @@ static int paj7620_write_register_array(const struct device *dev,
 	return paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
 }
 
-
-/**
- * Initializes registers for device to default values
- * The values are taken from the PAJ7620U2 v0.8 documentation and encoded
- */
 static int paj7620_init_device_settings(const struct device *dev)
 {
-	return paj7620_write_register_array(dev, initRegisterArray, INIT_REG_ARRAY_SIZE);
+	/**
+	 * Initializes registers with default values according to section 8.1
+	 * from Datasheet v1.5:
+	 * https://files.seeedstudio.com/wiki/Grove_Gesture_V_1.0/res/PAJ7620U2_DS_v1.5_05012022_Confidential.pdf
+	 */
+	return paj7620_write_register_array(dev,
+			                    initial_register_array,
+			                    ARRAY_SIZE(initial_register_array));
 }
 
-
-/**
- * Initializes registers for Gesture mode and enables only the gesture interrupts
- */
 static int paj7620_set_gesture_mode(const struct device *dev)
 {
+	/**
+	 * Initializes registers with values needed for Gesture mode according
+	 * to section 8.5 from Datasheet v1.5:
+	 * https://files.seeedstudio.com/wiki/Grove_Gesture_V_1.0/res/PAJ7620U2_DS_v1.5_05012022_Confidential.pdf
+	 */
 	return paj7620_write_register_array(dev,
-			setGestureModeRegisterArray, SET_GES_MODE_REG_ARRAY_SIZE);
+			                    change_to_gesture_register_array,
+					    ARRAY_SIZE(change_to_gesture_register_array));
 }
 
-/**
- * Double check to see if user is executing a Z-axis gesture
- * Entry- and exit-time delays are executed to give time for the sensor
- * to detect the second, more complicated gesture (as lateral gestures
- * are always detected first).
- */
 static int paj7620_fwd_bkwd_gesture_check(const struct device *dev,
 		                          enum paj7620_gesture initial_gesture,
 					  enum paj7620_gesture *return_gesture)
@@ -152,19 +164,26 @@ static int paj7620_fwd_bkwd_gesture_check(const struct device *dev,
 	uint8_t gesture_data = 0;
 	enum paj7620_gesture result = initial_gesture;
 
+	/**
+	 * Double check to see if user is executing a Z-axis gesture
+	 * Entry- and exit-time delays are executed to give time for the sensor
+	 * to detect the second, more complicated gesture (as lateral gestures
+	 * are always detected first).
+	 */
+
 	k_msleep(data->gest_entry_time);
 
-	ret = paj7620_byte_read(dev, PAJ7620_REG_GES_RESULT_0, &gesture_data);
+	ret = paj7620_byte_read(dev, PAJ7620_REG_INT_FLAG_1, &gesture_data);
 	if (ret) {
 		return -EIO;
 	}
 
-	if (gesture_data == GES_FORWARD_FLAG)
+	if (gesture_data == PAJ7620_MASK_INT_FLAG_1_GES_FORWARD)
 	{
 		k_msleep(data->gest_exit_time);
 		result = PAJ7620_GES_FORWARD;
 	}
-	else if (gesture_data == GES_BACKWARD_FLAG)
+	else if (gesture_data == PAJ7620_MASK_INT_FLAG_1_GES_BACKWARD)
 	{
 		k_msleep(data->gest_exit_time);
 		result = PAJ7620_GES_BACKWARD;
@@ -178,10 +197,16 @@ static int paj7620_read_gesture(const struct device *dev, enum paj7620_gesture *
 {
 	int ret = 0;
 	struct paj7620_data *data = dev->data;
-	uint8_t gest_data_reg0 = 0;
 	uint8_t gest_data_reg1 = 0;
+	uint8_t gest_data_reg2 = 0;
 
-	ret = paj7620_byte_read(dev, PAJ7620_REG_GES_RESULT_0, &gest_data_reg0);
+	/* We read from REG_INT_FLAG_1 and REG_INT_FLAG_2 even on polling mode
+	 * (when interrupts are disabled) because that's where the gesture
+	 * detection flags are set.
+	 * NOTE: A set bit means that the corresponding gesture has been detected
+	 */
+
+	ret = paj7620_byte_read(dev, PAJ7620_REG_INT_FLAG_1, &gest_data_reg1);
 
 	if (ret) {
 		LOG_ERR("Failed to read gesture data");
@@ -189,45 +214,45 @@ static int paj7620_read_gesture(const struct device *dev, enum paj7620_gesture *
 		return -EIO;
 	}
 	else {
-		switch (gest_data_reg0) {
-		case PAJ7620_GES_RIGHT_FLAG:
+		switch (gest_data_reg1) {
+		case PAJ7620_MASK_INT_FLAG_1_GES_RIGHT:
 			ret = paj7620_fwd_bkwd_gesture_check(dev, PAJ7620_GES_RIGHT, result);
 			break;
 
-		case PAJ7620_GES_LEFT_FLAG:
+		case PAJ7620_MASK_INT_FLAG_1_GES_LEFT:
 			ret = paj7620_fwd_bkwd_gesture_check(dev, PAJ7620_GES_LEFT, result);
 			break;
 
-		case PAJ7620_GES_UP_FLAG:
+		case PAJ7620_MASK_INT_FLAG_1_GES_UP:
 			ret = paj7620_fwd_bkwd_gesture_check(dev, PAJ7620_GES_UP, result);
 			break;
 
-		case PAJ7620_GES_DOWN_FLAG:
+		case PAJ7620_MASK_INT_FLAG_1_GES_DOWN:
 			ret = paj7620_fwd_bkwd_gesture_check(dev, PAJ7620_GES_DOWN, result);
 			break;
 
-		case PAJ7620_GES_FORWARD_FLAG:
+		case PAJ7620_MASK_INT_FLAG_1_GES_FORWARD:
 			k_msleep(data->gest_exit_time);
 			*result = PAJ7620_GES_FORWARD;
 			break;
 
-		case PAJ7620_GES_BACKWARD_FLAG:
+		case PAJ7620_MASK_INT_FLAG_1_GES_BACKWARD:
 			k_msleep(data->gest_exit_time);
 			*result = PAJ7620_GES_BACKWARD;
 			break;
 
-		case PAJ7620_GES_CLOCKWISE_FLAG:
+		case PAJ7620_MASK_INT_FLAG_1_GES_CLOCKWISE:
 			*result = PAJ7620_GES_CLOCKWISE;
 			break;
 
-		case PAJ7620_GES_ANTI_CLOCKWISE_FLAG:
-			*result = PAJ7620_GES_ANTICLOCKWISE;
+		case PAJ7620_MASK_INT_FLAG_1_GES_COUNTERCLOCKWISE:
+			*result = PAJ7620_GES_COUNTERCLOCKWISE;
 			break;
 
 		default:
-			/* Bank 1 (Reg 0x44) has wave flag */
-			ret = paj7620_byte_read(dev, PAJ7620_REG_GES_RESULT_1, &gest_data_reg0);
-			if (ret == 0 && gest_data_reg1 == PAJ7620_GES_WAVE_FLAG) {
+			/* Wave flag is stored in the other int flags register */
+			ret = paj7620_byte_read(dev, PAJ7620_REG_INT_FLAG_2, &gest_data_reg2);
+			if (ret == 0 && gest_data_reg2 == PAJ7620_MASK_INT_FLAG_2_GES_WAVE) {
 				*result = PAJ7620_GES_WAVE;
 			}
 			break;
@@ -255,7 +280,7 @@ static int paj7620_set_sampling_rate(const struct device *dev, const struct sens
 	}
 
 	ret = paj7620_select_register_bank(dev, PAJ7620_MEMBANK_1);
-	ret += paj7620_byte_write(dev, PAJ7620_REG_R_IDLE_TIME_0, fps);
+	ret += paj7620_byte_write(dev, PAJ7620_REG_R_IDLE_TIME_LSB, fps);
 	ret += paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
 	if (ret) {
 		LOG_ERR("Failed to set sample rate");
@@ -355,8 +380,10 @@ static int paj7620_init(const struct device *dev)
 		return -ENODEV;
 	}
 
-	/* Reasonable timing delay values to make algorithm insensitive to
-	 * hand entry and exit moves before and after detecting a gesture */
+	// According to the datasheet section 8.1, we must wait this time
+	// for sensor to stabilize after power up
+	k_usleep(PAJ7620_SENSOR_STABILIZATION_TIME_US);
+
 	data->gest_entry_time = PAJ7620_DEFAULT_GEST_ENTRY_TIME_MS;
 	data->gest_exit_time = PAJ7620_DEFAULT_GEST_EXIT_TIME_MS;
 
@@ -389,6 +416,14 @@ static int paj7620_init(const struct device *dev)
 		LOG_ERR("Failed to set Gesture mode");
 		return ret;
 	}
+
+#ifdef CONFIG_PAJ7620_TRIGGER
+	ret = paj7620_trigger_init(dev);
+	if (ret) {
+		LOG_ERR("Failed to enable interrupts");
+		return ret;
+	}
+#endif
 
 	return 0;
 }

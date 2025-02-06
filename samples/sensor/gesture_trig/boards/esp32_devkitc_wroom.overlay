@@ -1,0 +1,10 @@
+&i2c0 {
+	status = "okay";
+
+	paj7620 : paj7620@73 {
+		status = "okay";
+		compatible = "pixart,paj7620";
+		reg = <0x73>;
+		int-gpios = <&gpio0 18 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+	};
+};

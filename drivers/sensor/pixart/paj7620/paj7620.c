@@ -406,9 +406,18 @@ static DEVICE_API(sensor, paj7620_driver_api) = {
 #endif
 };
 
+#define PAJ7620_INT_PROPS(n)                    \
+	.int_gpio = GPIO_DT_SPEC_INST_GET(n, int_gpios),
+
+#define PAJ7620_INT(n)                          \
+	COND_CODE_1(CONFIG_PAJ7620_TRIGGER,     \
+			(PAJ7620_INT_PROPS(n)), \
+			())
+
 #define PAJ7620_INIT(n) \
 	static const struct paj7620_config paj7620_config_##n = { \
 		.i2c = I2C_DT_SPEC_INST_GET(n),                   \
+		PAJ7620_INT(n)                                    \
 	};                                                        \
                                                                   \
 	static struct paj7620_data paj7620_data_##n;              \

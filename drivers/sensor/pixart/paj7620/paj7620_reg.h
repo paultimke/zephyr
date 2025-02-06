@@ -86,7 +86,7 @@
  * https://files.seeedstudio.com/wiki/Grove_Gesture_V_1.0/res/PAJ7620U2_DS_v1.5_05012022_Confidential.pdf
  */
 
-const uint8_t initial_register_array[][2] = {
+static const uint8_t initial_register_array[][2] = {
 	{0xEF, 0x00}, /* Select memory bank 0 */
 	{0x41, 0x00}, /* Disable interrupts for first 8 gestures */
 	{0x42, 0x00}, /* Disable wave and other interrupts */

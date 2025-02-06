@@ -4,7 +4,7 @@ tests:
   sample.sensor.gesture_trig:
     build_only: true
     tags: sensors
-    platform_allow: esp32_devkitc_wroom
+    platform_allow: nucleo_f334r8
     depends_on:
       - i2c
       - paj7620

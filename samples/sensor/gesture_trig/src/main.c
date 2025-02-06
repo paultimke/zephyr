@@ -28,7 +28,6 @@ static void trigger_handler(const struct device *dev, const struct sensor_trigge
 int main(void)
 {
 	struct sensor_value data;
-	//const struct device *const dev = DEVICE_DT_GET(DT_ALIAS(gest0));
 	const struct device *const dev = DEVICE_DT_GET_ONE(pixart_paj7620);
 
 	struct sensor_trigger trig = {

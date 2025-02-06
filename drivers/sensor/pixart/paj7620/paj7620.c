@@ -16,30 +16,6 @@
 #include "paj7620.h"
 #include "paj7620_reg.h"
 
-#ifdef LOG_ERR
-#undef LOG_ERR
-#define LOG_ERR(...) {printf(__VA_ARGS__); printf("\n");}
-#endif
-
-#ifdef LOG_DBG
-#undef LOG_DBG
-#define LOG_DBG(...) {printf(__VA_ARGS__); printf("\n");}
-#endif
-
-/** TODO:
- * Properties:
- * Standby modes: Normal, Weak standby, Deep standby (configure auto wakeup / auto standby)
- * Operation mode: Gesture / Proximity / Cursor modes
- *
- * Kconfig:
- * Enable Z-Axis gestures (Backward, Forward) as KConfig option - disabled by default
- * Enable Circular gestures (Clockwise, Anticlockwise, Wave) as Kconfig option - disabled by default
- *
- * Device tree:
- * Device tree prop -> Select INT pin gpio
- * Device tree prop -> Configure INT pin as active high / active low
- */
-
 LOG_MODULE_REGISTER(PAJ7620, CONFIG_SENSOR_LOG_LEVEL);
 
 int paj7620_byte_read(const struct device *dev, uint8_t reg, uint8_t *byte)
@@ -414,14 +390,14 @@ static DEVICE_API(sensor, paj7620_driver_api) = {
 			(PAJ7620_INT_PROPS(n)), \
 			())
 
-#define PAJ7620_INIT(n) \
+#define PAJ7620_INIT(n)                                           \
 	static const struct paj7620_config paj7620_config_##n = { \
 		.i2c = I2C_DT_SPEC_INST_GET(n),                   \
 		PAJ7620_INT(n)                                    \
 	};                                                        \
                                                                   \
 	static struct paj7620_data paj7620_data_##n;              \
-		                                                  \
+                                                                  \
 	SENSOR_DEVICE_DT_INST_DEFINE(n,                           \
 			             paj7620_init,                \
 				     NULL,                        \

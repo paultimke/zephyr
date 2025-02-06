@@ -1,0 +1,10 @@
+sample:
+  name: Gesture polling sample
+tests:
+  sample.sensor.gesture_polling:
+    build_only: true
+    tags: sensors
+    platform_allow: nucleo_f334r8
+    depends_on:
+      - i2c
+      - paj7620

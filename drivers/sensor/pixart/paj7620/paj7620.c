@@ -50,7 +50,7 @@ static int paj7620_select_register_bank(const struct device *dev, enum paj7620_m
 	}
 
 	ret = paj7620_byte_write(dev, PAJ7620_REG_BANK_SEL, bank_selection);
-	if (ret) {
+	if (ret < 0) {
 		LOG_ERR("Failed to change memory bank");
 		return -EIO;
 	}
@@ -65,13 +65,13 @@ static int paj7620_get_hwId(const struct device *dev, uint16_t *result)
 
 	/* Part ID is stored in bank 0 */
 	ret = paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
-	if (ret) {
+	if (ret < 0) {
 		return -EIO;
 	}
 
 	ret = paj7620_byte_read(dev, PAJ7620_REG_PART_ID_LSB, &hwId[0]);
 	ret += paj7620_byte_read(dev, PAJ7620_REG_PART_ID_MSB, &hwId[1]);
-	if (ret) {
+	if (ret != 0) {
 		LOG_ERR("Failed to read hardware ID");
 		return -EIO;
 	}
@@ -100,7 +100,7 @@ static int paj7620_init_device_settings(const struct device *dev)
 		value = initial_register_array[i][1];
 
 		ret = paj7620_byte_write(dev, reg_addr, value);
-		if (ret) {
+		if (ret < 0) {
 			return -EIO;
 		}
 	}
@@ -127,7 +127,7 @@ static int paj7620_fwd_bkwd_gesture_check(const struct device *dev,
 	k_msleep(data->gest_entry_time);
 
 	ret = paj7620_byte_read(dev, PAJ7620_REG_INT_FLAG_1, &gesture_data);
-	if (ret) {
+	if (ret < 0) {
 		return -EIO;
 	}
 
@@ -161,7 +161,7 @@ static int paj7620_read_gesture(const struct device *dev, enum paj7620_gesture *
 
 	ret = paj7620_byte_read(dev, PAJ7620_REG_INT_FLAG_1, &gest_data_reg1);
 
-	if (ret) {
+	if (ret < 0) {
 		LOG_ERR("Failed to read gesture data");
 		*result = PAJ7620_GES_NONE;
 		return -EIO;
@@ -235,7 +235,7 @@ static int paj7620_set_sampling_rate(const struct device *dev, const struct sens
 	ret = paj7620_select_register_bank(dev, PAJ7620_MEMBANK_1);
 	ret += paj7620_byte_write(dev, PAJ7620_REG_R_IDLE_TIME_LSB, fps);
 	ret += paj7620_select_register_bank(dev, PAJ7620_MEMBANK_0);
-	if (ret) {
+	if (ret != 0) {
 		LOG_ERR("Failed to set sample rate");
 		return -EIO;
 	}
@@ -255,7 +255,7 @@ static int paj7620_sample_fetch(const struct device *dev, enum sensor_channel ch
 	}
 
 	/* Fetch gesture data */
-	if (paj7620_read_gesture(dev, &detected_gesture)) {
+	if (paj7620_read_gesture(dev, &detected_gesture) < 0) {
 		return -EIO;
 	}
 
@@ -346,7 +346,7 @@ static int paj7620_init(const struct device *dev)
 
 	/** Verify this is not some other sensor with the same address */
 	ret = paj7620_get_hwId(dev, &hwID);
-	if (ret) {
+	if (ret < 0) {
 		return ret;
 	}
 
@@ -357,14 +357,14 @@ static int paj7620_init(const struct device *dev)
 
 	/** Initialize settings (it defaults to gesture mode) */
 	ret = paj7620_init_device_settings(dev);
-	if (ret) {
+	if (ret < 0) {
 		LOG_ERR("Failed to initialize device registers");
 		return ret;
 	}
 
 #ifdef CONFIG_PAJ7620_TRIGGER
 	ret = paj7620_trigger_init(dev);
-	if (ret) {
+	if (ret < 0) {
 		LOG_ERR("Failed to enable interrupts");
 		return ret;
 	}

@@ -39,7 +39,7 @@ enum sensor_attribute_paj7620 {
 	/**
 	 * Time in milliseconds (ms) from which a first gesture is detected
 	 * to give time to detect a second intended gesture.
-	 * The interrupt pin will go high when a gesture is first detected, but
+	 * The interrupt pin will go active when a gesture is first detected, but
 	 * if the user is trying to move their hand to do a Z-axis gesture
 	 * (backward, forward), they will first trigger a lateral (up, down,
 	 * left, right) gesture, which will immediately raise the interrupt.

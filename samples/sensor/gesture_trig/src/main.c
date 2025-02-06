@@ -14,10 +14,7 @@ static void trigger_handler(const struct device *dev, const struct sensor_trigge
 {
 	ARG_UNUSED(trigger);
 
-	/* Always fetch the sample to clear the data ready interrupt in the
-	 * sensor.
-	 */
-	if (sensor_sample_fetch(dev)) {
+	if (sensor_sample_fetch(dev) < 0) {
 		printf("sensor_sample_fetch failed\n");
 		return;
 	}
@@ -28,7 +25,7 @@ static void trigger_handler(const struct device *dev, const struct sensor_trigge
 int main(void)
 {
 	struct sensor_value data;
-	const struct device *const dev = DEVICE_DT_GET_ONE(pixart_paj7620);
+	const struct device *dev = DEVICE_DT_GET_ONE(pixart_paj7620);
 
 	struct sensor_trigger trig = {
 		.type = SENSOR_TRIG_MOTION,
@@ -40,7 +37,7 @@ int main(void)
 		return 0;
 	}
 
-	if (sensor_trigger_set(dev, &trig, trigger_handler)) {
+	if (sensor_trigger_set(dev, &trig, trigger_handler) < 0) {
 		printf("Could not set trigger\n");
 		return 0;
 	}
